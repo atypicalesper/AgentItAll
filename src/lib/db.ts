@@ -94,7 +94,21 @@ const defaultConfig: AppConfig = {
 };
 
 export function getConfig(): AppConfig {
-  return read<AppConfig>("config.json", defaultConfig);
+  const raw = read<Record<string, unknown>>("config.json", {});
+  const ai = (raw.ai ?? {}) as Record<string, unknown>;
+  // Migrate old single apiKey → keys object
+  if (!ai.keys && ai.apiKey) {
+    ai.keys = { anthropic: ai.apiKey as string, groq: "", google: "", openai: "" };
+  }
+  ai.keys = { ...defaultConfig.ai.keys, ...(ai.keys as Record<string, string> ?? {}) };
+  if (!ai.provider) ai.provider = defaultConfig.ai.provider;
+  if (!ai.model) ai.model = defaultConfig.ai.model;
+  return {
+    ...defaultConfig,
+    ...raw,
+    ai: ai as unknown as AppConfig["ai"],
+    smtp: { ...defaultConfig.smtp, ...(raw.smtp as object ?? {}) },
+  };
 }
 
 export function saveConfig(config: AppConfig): void {
