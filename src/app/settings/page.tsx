@@ -50,8 +50,13 @@ export default function SettingsPage() {
     setTestingEmail(true);
     try {
       const res = await fetch("/api/config/test-email", { method: "POST" });
-      const { ok, error } = await res.json();
-      alert(ok ? "Test email sent!" : `Failed: ${error}`);
+      const { ok, error, etherealUrl } = await res.json();
+      if (!ok) { alert(`Failed: ${error}`); return; }
+      if (etherealUrl) {
+        window.open(etherealUrl, "_blank");
+      } else {
+        alert("Test email sent!");
+      }
     } finally {
       setTestingEmail(false);
     }
