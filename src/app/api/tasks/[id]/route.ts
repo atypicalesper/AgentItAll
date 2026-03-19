@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTask, upsertTask, deleteTask } from "@/lib/db";
 import { refreshScheduler } from "@/lib/scheduler";
+import { validateCronExpr } from "@/lib/scheduleUtils";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -14,6 +15,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const task = getTask(id);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const body = await req.json();
+  if (body.schedule?.kind === "cron") {
+    const err = validateCronExpr(body.schedule.expr ?? "");
+    if (err) return NextResponse.json({ error: `Invalid cron expression: ${err}` }, { status: 400 });
+  }
   const updated = { ...task, ...body, id, updatedAt: new Date().toISOString() };
   upsertTask(updated);
   refreshScheduler();

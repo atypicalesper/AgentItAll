@@ -5,6 +5,7 @@ import type { Task, TaskPermissions, ScheduleType, CustomTool } from "@/lib/type
 import { PROVIDERS } from "@/lib/providers";
 import type { ProviderKey } from "@/lib/providers";
 import { TASK_TEMPLATES } from "@/lib/taskTemplates";
+import { validateCronExpr } from "@/lib/scheduleUtils";
 
 interface Repo { name: string; path: string; branch: string }
 
@@ -105,6 +106,10 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   const handleSubmit = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (selectedRepos.length === 0) { setFormError("Select at least one repo."); return; }
+    if (cronExpr.trim()) {
+      const cronErr = validateCronExpr(cronExpr.trim());
+      if (cronErr) { setFormError(`Invalid cron expression: ${cronErr}`); return; }
+    }
     setFormError(null);
     const resolvedSchedule: typeof schedule = cronExpr.trim()
       ? { kind: "cron", expr: cronExpr.trim() }

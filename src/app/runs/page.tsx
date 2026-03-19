@@ -44,10 +44,13 @@ export default function RunsPage() {
   }, [page, filterStatus, filterName]);
 
   useEffect(() => { load(); }, [load]);
+  // Only poll while at least one run is in "running" state
+  const hasRunning = runs.some((r) => r.status === "running");
   useEffect(() => {
+    if (!hasRunning) return;
     const id = setInterval(load, 5000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, hasRunning]);
 
   const cancel = async (runId: string) => {
     await fetch(`/api/runs/${runId}/cancel`, { method: "POST" });

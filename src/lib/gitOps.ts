@@ -56,11 +56,25 @@ export function push(repoPath: string): void {
 }
 
 export function createBranch(repoPath: string, branch: string): void {
-  run(`git checkout -b ${branch}`, repoPath);
+  try {
+    execFileSync("git", ["checkout", "-b", branch], {
+      cwd: repoPath, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (e: unknown) {
+    const err = e as { stderr?: Buffer };
+    throw new Error(err.stderr?.toString() ?? String(e));
+  }
 }
 
 export function pushBranch(repoPath: string, branch: string): void {
-  run(`git push -u origin ${branch}`, repoPath);
+  try {
+    execFileSync("git", ["push", "-u", "origin", branch], {
+      cwd: repoPath, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (e: unknown) {
+    const err = e as { stderr?: Buffer };
+    throw new Error(err.stderr?.toString() ?? String(e));
+  }
 }
 
 export function getRemoteUrl(repoPath: string): string {

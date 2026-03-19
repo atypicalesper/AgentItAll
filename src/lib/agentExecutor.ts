@@ -1,4 +1,4 @@
-import { streamText, tool, stepCountIs } from "ai";
+import { streamText, tool, stepCountIs, type LanguageModelUsage } from "ai";
 import { z } from "zod";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -65,7 +65,14 @@ export async function runAgent(
   };
   upsertRun(run);
 
-  const appendOutput = (text: string) => { run.output += text; };
+  const MAX_OUTPUT_BYTES = 512_000; // 500 KB
+  const appendOutput = (text: string) => {
+    if (run.output.length >= MAX_OUTPUT_BYTES) return;
+    const remaining = MAX_OUTPUT_BYTES - run.output.length;
+    run.output += text.length > remaining
+      ? text.slice(0, remaining) + "\n…[output truncated at 500 KB]"
+      : text;
+  };
 
   const maxRetries = task.retryOnFailure ? (task.maxRetries ?? 3) : 1;
   let lastErr: unknown;
@@ -326,10 +333,10 @@ ${repoContexts}`;
 
       // Capture token usage + cost estimate
       try {
-        const u = await result.usage;
+        const u = await result.usage as LanguageModelUsage;
         if (u) {
-          const prompt = (u as { inputTokens?: number }).inputTokens ?? 0;
-          const completion = (u as { outputTokens?: number }).outputTokens ?? 0;
+          const prompt = u.inputTokens ?? 0;
+          const completion = u.outputTokens ?? 0;
           run.tokenUsage = { promptTokens: prompt, completionTokens: completion, totalTokens: prompt + completion };
           run.estimatedCost = estimateCost(provider, prompt, completion);
           // Cost budget enforcement (log overage, still mark success — run already finished)
@@ -372,10 +379,15 @@ ${repoContexts}`;
                       }),
                     }
                   );
-                  const pr = await prRes.json() as { html_url?: string };
-                  if (pr.html_url) {
-                    run.prUrl = pr.html_url;
-                    log(runId, `\n[git] PR opened: ${pr.html_url}\n`);
+                  if (!prRes.ok) {
+                    const errBody = await prRes.text();
+                    log(runId, `\n[git] PR creation failed (${prRes.status}): ${errBody}\n`);
+                  } else {
+                    const pr = await prRes.json() as { html_url?: string };
+                    if (pr.html_url) {
+                      run.prUrl = pr.html_url;
+                      log(runId, `\n[git] PR opened: ${pr.html_url}\n`);
+                    }
                   }
                 }
               }

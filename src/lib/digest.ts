@@ -3,7 +3,7 @@ import { sendEmail } from "./emailer";
 import type { AppConfig } from "./types";
 
 export async function sendDailyDigest(config: AppConfig): Promise<void> {
-  if (!config.smtp.enabled && !config.smtp.toAddress) return;
+  if (!config.smtp.enabled || !config.smtp.toAddress) return;
 
   const since = new Date();
   since.setHours(since.getHours() - 24);

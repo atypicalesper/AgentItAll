@@ -34,17 +34,23 @@ function registerTask(task: Task) {
   const expr = toCronExpression(task.schedule);
   if (!expr) return;
 
-  const job = cron.schedule(expr, async () => {
-    if (isAlreadyRunning(task.id)) {
-      console.log(`[scheduler] Task ${task.name} already running, skipping.`);
-      return;
-    }
-    const runId = crypto.randomUUID();
-    console.log(`[scheduler] Triggering task: ${task.name} (${runId})`);
-    runAgent(task, runId, "scheduled").catch((err) =>
-      console.error(`[scheduler] Task ${task.name} failed:`, err)
-    );
-  });
+  let job: import("node-cron").ScheduledTask;
+  try {
+    job = cron.schedule(expr, async () => {
+      if (isAlreadyRunning(task.id)) {
+        console.log(`[scheduler] Task ${task.name} already running, skipping.`);
+        return;
+      }
+      const runId = crypto.randomUUID();
+      console.log(`[scheduler] Triggering task: ${task.name} (${runId})`);
+      runAgent(task, runId, "scheduled").catch((err) =>
+        console.error(`[scheduler] Task ${task.name} failed:`, err)
+      );
+    });
+  } catch (err) {
+    console.error(`[scheduler] Invalid cron expression for task "${task.name}" (${expr}):`, err);
+    return;
+  }
 
   jobs.set(task.id, job);
   console.log(`[scheduler] Registered: ${task.name} → ${expr}`);

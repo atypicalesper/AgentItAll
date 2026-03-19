@@ -119,27 +119,28 @@ export interface RunsQuery {
   limit?: number;
 }
 
-export function getRuns(query: RunsQuery = {}): RunLog[] {
-  const { taskId, status, search, page = 1, limit = 0 } = query;
-  let sql = "SELECT data FROM runs WHERE 1=1";
+function buildRunsWhere(query: Omit<RunsQuery, "page" | "limit">): { where: string; params: unknown[] } {
+  const { taskId, status, search } = query;
+  let where = "WHERE 1=1";
   const params: unknown[] = [];
-  if (taskId) { sql += " AND task_id=?"; params.push(taskId); }
-  if (status && status !== "all") { sql += " AND status=?"; params.push(status); }
-  sql += " ORDER BY started_at DESC";
+  if (taskId) { where += " AND task_id=?"; params.push(taskId); }
+  if (status && status !== "all") { where += " AND status=?"; params.push(status); }
+  if (search) { where += " AND LOWER(json_extract(data,'$.taskName')) LIKE ?"; params.push(`%${search.toLowerCase()}%`); }
+  return { where, params };
+}
+
+export function getRuns(query: RunsQuery = {}): RunLog[] {
+  const { page = 1, limit = 0 } = query;
+  const { where, params } = buildRunsWhere(query);
+  let sql = `SELECT data FROM runs ${where} ORDER BY started_at DESC`;
   if (limit > 0) { sql += " LIMIT ? OFFSET ?"; params.push(limit, (page - 1) * limit); }
   const rows = getDb().prepare(sql).all(...params) as { data: string }[];
-  const runs = rows.map((r) => JSON.parse(r.data) as RunLog);
-  if (search) return runs.filter((r) => r.taskName.toLowerCase().includes(search.toLowerCase()));
-  return runs;
+  return rows.map((r) => JSON.parse(r.data) as RunLog);
 }
 
 export function getRunsCount(query: Omit<RunsQuery, "page" | "limit"> = {}): number {
-  const { taskId, status } = query;
-  let sql = "SELECT COUNT(*) as n FROM runs WHERE 1=1";
-  const params: unknown[] = [];
-  if (taskId) { sql += " AND task_id=?"; params.push(taskId); }
-  if (status && status !== "all") { sql += " AND status=?"; params.push(status); }
-  const row = getDb().prepare(sql).get(...params) as { n: number };
+  const { where, params } = buildRunsWhere(query);
+  const row = getDb().prepare(`SELECT COUNT(*) as n FROM runs ${where}`).get(...params) as { n: number };
   return row.n;
 }
 

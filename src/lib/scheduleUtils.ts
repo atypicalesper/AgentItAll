@@ -40,6 +40,16 @@ export function formatTimeUntil(date: Date): string {
   return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
 }
 
+/** Returns null if valid, error message if invalid */
+export function validateCronExpr(expr: string): string | null {
+  try {
+    CronExpressionParser.parse(expr);
+    return null;
+  } catch (e) {
+    return String(e instanceof Error ? e.message : e);
+  }
+}
+
 function toCronExpr(schedule: ScheduleType): string | null {
   switch (schedule.kind) {
     case "manual":  return null;

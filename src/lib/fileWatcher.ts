@@ -1,3 +1,4 @@
+import { sep } from "path";
 import type { Task } from "./types";
 
 let initialized = false;
@@ -32,7 +33,9 @@ export async function initFileWatcher(tasks: Task[]) {
     for (const task of watched) {
       const paths = watchMap.get(task.id);
       if (!paths) continue;
-      const matches = [...paths].some((p) => filePath.startsWith(p) || filePath === p);
+      const matches = [...paths].some((p) =>
+        filePath === p || filePath.startsWith(p.endsWith(sep) ? p : p + sep)
+      );
       if (!matches) continue;
 
       // skip if already running
