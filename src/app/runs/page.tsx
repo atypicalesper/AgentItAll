@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { RunLog } from "@/lib/types";
 import DiffViewer from "@/components/runs/DiffViewer";
-import LiveStream from "@/components/runs/LiveStream";
 
 const statusColor: Record<string, string> = {
   running: "var(--warning)",
@@ -27,6 +27,10 @@ export default function RunsPage() {
     return () => clearInterval(id);
   }, []);
 
+  const cancel = async (runId: string) => {
+    await fetch(`/api/runs/${runId}/cancel`, { method: "POST" });
+  };
+
   return (
     <div>
       <div style={{ marginBottom: 28 }}>
@@ -44,67 +48,69 @@ export default function RunsPage() {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {runs.map((run) => {
           const open = expanded === run.id;
+          const color = statusColor[run.status];
+
           return (
             <div key={run.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-              <button
-                onClick={() => setExpanded(open ? null : run.id)}
-                style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: "16px 20px", display: "flex", alignItems: "center", gap: 14, textAlign: "left" }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor[run.status], flexShrink: 0, boxShadow: run.status === "running" ? `0 0 6px ${statusColor[run.status]}` : "none" }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 18px" }}>
+                {/* Status dot */}
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: run.status === "running" ? `0 0 6px ${color}` : "none" }} />
+
+                {/* Info */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14, color: "var(--text)" }}>{run.taskName}</span>
-                    <span style={{ fontSize: 11, color: statusColor[run.status], fontWeight: 600, textTransform: "uppercase" }}>{run.status}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Link href={`/tasks/${run.taskId}`} style={{ fontWeight: 600, fontSize: 14, color: "var(--text)", textDecoration: "none" }}>{run.taskName}</Link>
+                    <span style={{ fontSize: 11, color, fontWeight: 600, textTransform: "uppercase" }}>{run.status}</span>
                     <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{run.trigger}</span>
+                    {run.commitSha && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>· {run.commitSha}</span>}
+                    {run.pushed && <span style={{ fontSize: 11, color: "var(--success)" }}>· pushed</span>}
                   </div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                    {fmt(run.startedAt)} {run.finishedAt ? `→ ${fmt(run.finishedAt)}` : ""}
-                    {run.commitSha ? ` · commit ${run.commitSha}` : ""}
-                    {run.pushed ? " · pushed" : ""}
+                    {fmt(run.startedAt)}{run.finishedAt ? ` → ${fmt(run.finishedAt)}` : ""}
                   </div>
                 </div>
-                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{open ? "▲" : "▼"}</span>
-              </button>
 
-              {open && (
-                <div style={{ padding: "0 20px 20px", borderTop: "1px solid var(--border)" }}>
+                {/* Actions */}
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                   {run.status === "running" && (
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>LIVE OUTPUT</div>
-                      <LiveStream runId={run.id} />
+                    <button onClick={() => cancel(run.id)} style={{ fontSize: 12, padding: "4px 10px", background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 6, color: "var(--error)", cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                  )}
+                  <Link href={`/runs/${run.id}`} style={{ fontSize: 12, padding: "4px 10px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text)", textDecoration: "none" }}>
+                    {run.status === "running" ? "Live →" : "View →"}
+                  </Link>
+                  <button onClick={() => setExpanded(open ? null : run.id)} style={{ fontSize: 12, padding: "4px 10px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}>
+                    {open ? "▲" : "▼"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Inline expand (summary only — full detail is at /runs/[id]) */}
+              {open && (
+                <div style={{ padding: "0 18px 18px", borderTop: "1px solid var(--border)" }}>
+                  {run.output && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>OUTPUT PREVIEW</div>
+                      <pre style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 10, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 200, overflowY: "auto", margin: 0 }}>
+                        {run.output.slice(0, 1000)}{run.output.length > 1000 ? "\n…(truncated — open full view)" : ""}
+                      </pre>
                     </div>
                   )}
-
-                  {run.output && run.status !== "running" && (
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>OUTPUT</div>
-                      <pre style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 12, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 300, overflowY: "auto", margin: 0 }}>{run.output}</pre>
-                    </div>
-                  )}
-
                   {run.edits.length > 0 && (
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>FILE CHANGES ({run.edits.length})</div>
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>FILE CHANGES ({run.edits.length})</div>
                       <DiffViewer edits={run.edits} />
                     </div>
                   )}
-
-                  {run.commandsRun.length > 0 && (
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>COMMANDS RUN</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        {run.commandsRun.map((cmd, i) => (
-                          <code key={i} style={{ fontSize: 12, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", display: "block" }}>{cmd}</code>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   {run.error && (
-                    <div style={{ marginTop: 16, padding: 12, background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, fontSize: 13, color: "var(--error)" }}>
+                    <div style={{ marginTop: 12, padding: 10, background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, fontSize: 12, color: "var(--error)" }}>
                       {run.error}
                     </div>
                   )}
+                  <div style={{ marginTop: 12 }}>
+                    <Link href={`/runs/${run.id}`} style={{ fontSize: 13, color: "var(--accent)", textDecoration: "none" }}>Open full run view →</Link>
+                  </div>
                 </div>
               )}
             </div>

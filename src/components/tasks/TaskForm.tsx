@@ -41,7 +41,14 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   };
 
   const setPerm = (key: keyof TaskPermissions, val: boolean) => {
-    setPermissions((p) => ({ ...p, [key]: val }));
+    setPermissions((p) => {
+      const next = { ...p, [key]: val };
+      // push requires commit — auto-enable commit when push is enabled
+      if (key === "push" && val) next.commit = true;
+      // disabling commit also disables push
+      if (key === "commit" && !val) next.push = false;
+      return next;
+    });
   };
 
   const [formError, setFormError] = useState<string | null>(null);

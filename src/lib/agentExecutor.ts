@@ -54,6 +54,15 @@ export async function runAgent(
   };
 
   try {
+    if (!config.ai.apiKey) throw new Error("No API key configured. Go to Settings and add your Anthropic API key.");
+
+    // ── Pre-flight: verify repos exist ───────────────────────────────────────
+    for (const repoPath of task.repos) {
+      if (!existsSync(repoPath)) {
+        throw new Error(`Repo not found: ${repoPath}. Update the task with a valid path.`);
+      }
+    }
+
     const client = new Anthropic({ apiKey: config.ai.apiKey });
 
     // ── Build context from repos ─────────────────────────────────────────────

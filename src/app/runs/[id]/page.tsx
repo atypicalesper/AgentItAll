@@ -22,6 +22,10 @@ export default function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [run, setRun] = useState<RunLog | null>(null);
 
+  const cancel = async () => {
+    await fetch(`/api/runs/${id}/cancel`, { method: "POST" });
+  };
+
   useEffect(() => {
     const load = () =>
       fetch(`/api/runs/${id}`)
@@ -50,7 +54,7 @@ export default function RunDetailPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
         <span style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0, boxShadow: run.status === "running" ? `0 0 8px ${color}` : "none" }} />
-        <div>
+        <div style={{ flex: 1 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{run.taskName}</h1>
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 3 }}>
             <span style={{ color, fontWeight: 600, textTransform: "uppercase", marginRight: 10 }}>{run.status}</span>
@@ -61,6 +65,11 @@ export default function RunDetailPage() {
             {run.pushed && <span style={{ marginLeft: 10, color: "var(--success)" }}>· pushed</span>}
           </div>
         </div>
+        {run.status === "running" && (
+          <button onClick={cancel} style={{ fontSize: 13, padding: "6px 14px", background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, color: "var(--error)", cursor: "pointer" }}>
+            Cancel Run
+          </button>
+        )}
       </div>
 
       {/* Repos */}
