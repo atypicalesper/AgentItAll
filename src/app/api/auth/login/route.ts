@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
 import { createHmac } from "crypto";
-import { getConfig } from "@/lib/db";
 
+const PASSWORD = process.env.AUTH_PASSWORD ?? "";
 const SECRET = process.env.AUTH_SECRET ?? "agentitall-local-secret";
 
-export function makeToken(password: string): string {
+function makeToken(password: string): string {
   return createHmac("sha256", SECRET).update(password).digest("hex");
 }
 
 export async function POST(req: Request) {
   const { password } = await req.json() as { password: string };
-  const config = getConfig();
 
-  if (!config.password || password !== config.password) {
+  if (!PASSWORD || password !== PASSWORD) {
     return NextResponse.json({ ok: false, error: "Invalid password" }, { status: 401 });
   }
 

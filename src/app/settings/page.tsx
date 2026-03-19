@@ -196,12 +196,15 @@ export default function SettingsPage() {
 
       {/* Security */}
       <Section title="Security">
-        <Field label="Dashboard Password">
-          <input type="password" value={config.password ?? ""} onChange={(e) => setConfig({ ...config, password: e.target.value })}
-            placeholder="Leave blank to disable password protection" style={inputStyle} />
-        </Field>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
+          Set <code style={{ fontFamily: "monospace", background: "var(--surface2)", padding: "1px 6px", borderRadius: 4 }}>AUTH_PASSWORD</code> in <code style={{ fontFamily: "monospace", background: "var(--surface2)", padding: "1px 6px", borderRadius: 4 }}>.env.local</code> to enable password protection.
+          Leave it unset for open access.
+        </div>
+        <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 14px", fontFamily: "monospace", fontSize: 13, color: "var(--text)" }}>
+          AUTH_PASSWORD=yourpassword
+        </div>
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          When set, all dashboard routes require this password. Leave blank to disable auth.
+          Restart the dev server after changing .env.local.
         </div>
       </Section>
 
