@@ -91,6 +91,15 @@ export default function TasksPage() {
     }
   };
 
+  const handleDuplicate = async (id: string) => {
+    try {
+      await fetch(`/api/tasks/${id}/duplicate`, { method: "POST" });
+      load();
+    } catch {
+      setError("Failed to duplicate task.");
+    }
+  };
+
   const handleRun = async (task: Task) => {
     try {
       setError(null);
@@ -171,6 +180,7 @@ export default function TasksPage() {
                   <button onClick={() => handleRun(task)} style={{ ...primaryBtn, fontSize: 13 }}>▶ Run</button>
                 )}
                 <button onClick={() => { setEditTask(task); setShowForm(true); }} style={secondaryBtn}>Edit</button>
+                <button onClick={() => handleDuplicate(task.id)} style={secondaryBtn}>Copy</button>
                 <button onClick={() => handleDelete(task.id)} style={{ ...secondaryBtn, color: "var(--error)", borderColor: "transparent" }}>Delete</button>
               </div>
             </div>

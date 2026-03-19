@@ -54,3 +54,28 @@ export function commitAll(repoPath: string, message: string): string {
 export function push(repoPath: string): void {
   run("git push", repoPath);
 }
+
+export function createBranch(repoPath: string, branch: string): void {
+  run(`git checkout -b ${branch}`, repoPath);
+}
+
+export function pushBranch(repoPath: string, branch: string): void {
+  run(`git push -u origin ${branch}`, repoPath);
+}
+
+export function getRemoteUrl(repoPath: string): string {
+  return runSafe("git remote get-url origin", repoPath);
+}
+
+export function discardChanges(repoPath: string): void {
+  runSafe("git checkout -- .", repoPath);
+  runSafe("git clean -fd", repoPath);
+}
+
+/** Parse "owner/repo" from an https or ssh remote URL */
+export function parseOwnerRepo(remoteUrl: string): { owner: string; repo: string } | null {
+  // https://github.com/owner/repo.git or git@github.com:owner/repo.git
+  const https = remoteUrl.match(/github\.com[/:]([^/]+)\/([^/\s]+?)(?:\.git)?$/);
+  if (https) return { owner: https[1], repo: https[2] };
+  return null;
+}

@@ -66,6 +66,26 @@ export default function SettingsPage() {
     }
   };
 
+  const exportData = async () => {
+    const res = await fetch("/api/export");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agentItAll-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await fetch("/api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    alert("Import complete. Reload to see updated data.");
+  };
+
   const setKey = (provider: ProviderKey, val: string) => {
     if (!config) return;
     setConfig({ ...config, ai: { ...config.ai, keys: { ...config.ai.keys, [provider]: val } } });
@@ -172,6 +192,49 @@ export default function SettingsPage() {
         <button onClick={testEmail} disabled={testingEmail || !config.smtp.enabled} style={{ ...secondaryBtn, opacity: config.smtp.enabled ? 1 : 0.5 }}>
           {testingEmail ? "Sending…" : "Send Test Email"}
         </button>
+      </Section>
+
+      {/* Security */}
+      <Section title="Security">
+        <Field label="Dashboard Password">
+          <input type="password" value={config.password ?? ""} onChange={(e) => setConfig({ ...config, password: e.target.value })}
+            placeholder="Leave blank to disable password protection" style={inputStyle} />
+        </Field>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          When set, all dashboard routes require this password. Leave blank to disable auth.
+        </div>
+      </Section>
+
+      {/* Integrations */}
+      <Section title="Integrations">
+        <Field label="GitHub Token">
+          <input type="password" value={config.githubToken ?? ""} onChange={(e) => setConfig({ ...config, githubToken: e.target.value })}
+            placeholder="ghp_… — needed for auto PR creation" style={inputStyle} />
+        </Field>
+        <Field label="Webhook Secret">
+          <input value={config.webhookSecret ?? ""} onChange={(e) => setConfig({ ...config, webhookSecret: e.target.value })}
+            placeholder="Random string — used to verify webhook calls" style={inputStyle} />
+        </Field>
+        {config.webhookSecret && (
+          <div style={{ fontSize: 12, color: "var(--text-muted)", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px" }}>
+            Webhook URL: <code style={{ fontFamily: "monospace", color: "var(--text)" }}>{typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/[taskId]</code>
+            <br />Pass <code style={{ fontFamily: "monospace" }}>Authorization: Bearer {config.webhookSecret}</code>
+          </div>
+        )}
+      </Section>
+
+      {/* Export / Import */}
+      <Section title="Export &amp; Import">
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={exportData} style={secondaryBtn}>⬇ Export Data</button>
+          <label style={{ ...secondaryBtn, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+            ⬆ Import Data
+            <input type="file" accept=".json" onChange={importData} style={{ display: "none" }} />
+          </label>
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          Export downloads all tasks, runs, and settings as JSON. Import merges data from a previously exported file.
+        </div>
       </Section>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

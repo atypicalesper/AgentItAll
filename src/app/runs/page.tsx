@@ -19,6 +19,8 @@ function fmt(iso: string) {
 export default function RunsPage() {
   const [runs, setRuns] = useState<RunLog[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterName, setFilterName] = useState("");
 
   useEffect(() => {
     const load = () => fetch("/api/runs").then((r) => r.json()).then(setRuns);
@@ -31,11 +33,41 @@ export default function RunsPage() {
     await fetch(`/api/runs/${runId}/cancel`, { method: "POST" });
   };
 
+  const filtered = runs.filter((r) => {
+    if (filterStatus !== "all" && r.status !== filterStatus) return false;
+    if (filterName && !r.taskName.toLowerCase().includes(filterName.toLowerCase())) return false;
+    return true;
+  });
+
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Run History</h1>
         <p style={{ margin: "4px 0 0", color: "var(--text-muted)", fontSize: 14 }}>{runs.length} run{runs.length !== 1 ? "s" : ""}</p>
+      </div>
+
+      {/* Filter bar */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <input
+          value={filterName}
+          onChange={(e) => setFilterName(e.target.value)}
+          placeholder="Search by task name…"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text)", fontSize: 13, flex: 1, minWidth: 180, outline: "none" }}
+        />
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text)", fontSize: 13, outline: "none" }}>
+          <option value="all">All statuses</option>
+          <option value="running">Running</option>
+          <option value="success">Success</option>
+          <option value="failed">Failed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        {(filterName || filterStatus !== "all") && (
+          <button onClick={() => { setFilterName(""); setFilterStatus("all"); }}
+            style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>
+            Clear
+          </button>
+        )}
       </div>
 
       {runs.length === 0 && (
@@ -46,7 +78,7 @@ export default function RunsPage() {
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {runs.map((run) => {
+        {filtered.map((run) => {
           const open = expanded === run.id;
           const color = statusColor[run.status];
 

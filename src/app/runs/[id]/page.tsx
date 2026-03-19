@@ -26,6 +26,11 @@ export default function RunDetailPage() {
     await fetch(`/api/runs/${id}/cancel`, { method: "POST" });
   };
 
+  const approve = async (action: "approve" | "reject") => {
+    await fetch(`/api/runs/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    setRun((r) => r ? { ...r, approvalStatus: action === "approve" ? "approved" : "rejected" } : r);
+  };
+
   useEffect(() => {
     const load = () =>
       fetch(`/api/runs/${id}`)
@@ -79,6 +84,36 @@ export default function RunDetailPage() {
         ))}
       </div>
 
+      {/* Approval banner */}
+      {run.approvalStatus === "pending" && (
+        <div style={{ marginBottom: 24, padding: "16px 20px", background: "rgba(251,191,36,0.08)", border: "1px solid var(--warning)", borderRadius: 10 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>⏳ Awaiting approval</div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
+            The agent has written file changes but held the commit. Review the diff below then approve or reject.
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => approve("approve")}
+              style={{ background: "var(--success)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              ✓ Approve &amp; Commit
+            </button>
+            <button onClick={() => approve("reject")}
+              style={{ background: "rgba(248,113,113,0.1)", color: "var(--error)", border: "1px solid var(--error)", borderRadius: 8, padding: "8px 20px", fontSize: 13, cursor: "pointer" }}>
+              ✗ Reject &amp; Discard
+            </button>
+          </div>
+        </div>
+      )}
+      {run.approvalStatus === "approved" && (
+        <div style={{ marginBottom: 24, padding: "10px 16px", background: "rgba(74,222,128,0.08)", border: "1px solid var(--success)", borderRadius: 10, fontSize: 13, color: "var(--success)", fontWeight: 600 }}>
+          ✓ Approved — changes committed
+        </div>
+      )}
+      {run.approvalStatus === "rejected" && (
+        <div style={{ marginBottom: 24, padding: "10px 16px", background: "rgba(248,113,113,0.08)", border: "1px solid var(--error)", borderRadius: 10, fontSize: 13, color: "var(--error)", fontWeight: 600 }}>
+          ✗ Rejected — changes discarded
+        </div>
+      )}
+
       {/* Live stream (only when running) */}
       {run.status === "running" && (
         <Section title="Live Output">
@@ -118,6 +153,34 @@ export default function RunDetailPage() {
         <Section title="Error">
           <div style={{ padding: 12, background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, fontSize: 13, color: "var(--error)", fontFamily: "monospace" }}>
             {run.error}
+          </div>
+        </Section>
+      )}
+
+      {/* Token usage */}
+      {run.tokenUsage && (
+        <Section title="Token Usage">
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {[
+              { label: "Prompt", value: run.tokenUsage.promptTokens },
+              { label: "Completion", value: run.tokenUsage.completionTokens },
+              { label: "Total", value: run.tokenUsage.totalTokens },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 16px", minWidth: 110 }}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{value.toLocaleString()}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Branch / PR */}
+      {(run.branchName || run.prUrl) && (
+        <Section title="Branch &amp; PR">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+            {run.branchName && <div style={{ color: "var(--text-muted)" }}>Branch: <code style={{ fontFamily: "monospace", color: "var(--text)" }}>{run.branchName}</code></div>}
+            {run.prUrl && <a href={run.prUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>View Pull Request →</a>}
           </div>
         </Section>
       )}

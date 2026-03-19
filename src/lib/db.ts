@@ -71,6 +71,10 @@ export function upsertRun(run: RunLog): void {
   write("runs.json", runs);
 }
 
+export function saveRuns(runs: RunLog[]): void {
+  write("runs.json", runs);
+}
+
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const defaultConfig: AppConfig = {

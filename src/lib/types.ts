@@ -29,15 +29,29 @@ export interface Task {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+  // Advanced
+  branchPerRun?: boolean;
+  githubPrOnPush?: boolean;
+  requiresApproval?: boolean;
+  retryOnFailure?: boolean;
+  maxRetries?: number;
+  triggerTaskIds?: string[];
 }
 
 // ── RunLog ───────────────────────────────────────────────────────────────────
 
 export type RunStatus = "running" | "success" | "failed" | "cancelled";
+export type ApprovalStatus = "pending" | "approved" | "rejected";
 
 export interface FileEdit {
   path: string;
   diff: string;
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
 }
 
 export interface RunLog {
@@ -56,6 +70,12 @@ export interface RunLog {
   pushed: boolean;
   emailSent: boolean;
   error?: string;
+  attempt?: number;
+  tokenUsage?: TokenUsage;
+  branchName?: string;
+  prUrl?: string;
+  approvalStatus?: ApprovalStatus;
+  pendingCommitMessage?: string;
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -86,6 +106,9 @@ export interface AppConfig {
   theme: "dark" | "light";
   ai: AIProviderConfig;
   smtp: SMTPConfig;
+  password?: string;
+  githubToken?: string;
+  webhookSecret?: string;
   updatedAt: string;
 }
 

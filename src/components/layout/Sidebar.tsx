@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const nav = [
+  { href: "/", label: "Dashboard", icon: "🏠", exact: true },
   { href: "/tasks", label: "Tasks", icon: "⚡" },
   { href: "/runs", label: "Run History", icon: "📋" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
@@ -34,8 +35,8 @@ export default function Sidebar() {
       </div>
 
       <nav style={{ flex: 1 }}>
-        {nav.map(({ href, label, icon }) => {
-          const active = path.startsWith(href);
+        {nav.map(({ href, label, icon, exact }) => {
+          const active = exact ? path === href : path.startsWith(href);
           return (
             <Link
               key={href}

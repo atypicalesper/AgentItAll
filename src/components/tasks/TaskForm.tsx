@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { Task, TaskPermissions, ScheduleType } from "@/lib/types";
 import { PROVIDERS } from "@/lib/providers";
 import type { ProviderKey } from "@/lib/providers";
+import { TASK_TEMPLATES } from "@/lib/taskTemplates";
 
 interface Repo { name: string; path: string; branch: string }
 
@@ -36,6 +37,7 @@ interface Props {
 
 export default function TaskForm({ task, onSave, onCancel }: Props) {
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [name, setName] = useState(task?.name ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [selectedRepos, setSelectedRepos] = useState<string[]>(task?.repos ?? []);
@@ -48,6 +50,15 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   const [provider, setProvider] = useState<ProviderKey>(task?.provider ?? "groq");
   const [model, setModel] = useState(task?.model ?? PROVIDERS["groq"].models[0]);
   const [enabled, setEnabled] = useState(task?.enabled ?? true);
+  // Advanced
+  const [branchPerRun, setBranchPerRun] = useState(task?.branchPerRun ?? false);
+  const [githubPrOnPush, setGithubPrOnPush] = useState(task?.githubPrOnPush ?? false);
+  const [requiresApproval, setRequiresApproval] = useState(task?.requiresApproval ?? false);
+  const [retryOnFailure, setRetryOnFailure] = useState(task?.retryOnFailure ?? false);
+  const [maxRetries, setMaxRetries] = useState(task?.maxRetries ?? 3);
+  const [triggerTaskIds, setTriggerTaskIds] = useState<string[]>(task?.triggerTaskIds ?? []);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleProviderChange = (p: ProviderKey) => {
     setProvider(p);
@@ -56,6 +67,7 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
 
   useEffect(() => {
     fetch("/api/repos").then((r) => r.json()).then(setRepos);
+    fetch("/api/tasks").then((r) => r.json()).then(setAllTasks);
   }, []);
 
   const toggleRepo = (path: string) => {
@@ -64,49 +76,69 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
     );
   };
 
+  const toggleTrigger = (id: string) => {
+    setTriggerTaskIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]);
+  };
+
   const setPerm = (key: keyof TaskPermissions, val: boolean) => {
     setPermissions((p) => {
       const next = { ...p, [key]: val };
-      // push requires commit — auto-enable commit when push is enabled
       if (key === "push" && val) next.commit = true;
-      // disabling commit also disables push
       if (key === "commit" && !val) next.push = false;
       return next;
     });
   };
 
-  const [formError, setFormError] = useState<string | null>(null);
-
   const handleSubmit = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (selectedRepos.length === 0) {
-      setFormError("Select at least one repo.");
-      return;
-    }
+    if (selectedRepos.length === 0) { setFormError("Select at least one repo."); return; }
     setFormError(null);
-    onSave({ name, prompt, repos: selectedRepos, permissions, schedule, model, enabled, provider });
+    onSave({
+      name, prompt, repos: selectedRepos, permissions, schedule, model, enabled, provider,
+      branchPerRun, githubPrOnPush, requiresApproval,
+      retryOnFailure, maxRetries: retryOnFailure ? maxRetries : undefined,
+      triggerTaskIds: triggerTaskIds.length ? triggerTaskIds : undefined,
+    });
   };
+
+  const otherTasks = allTasks.filter((t) => t.id !== task?.id);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
-      <form onSubmit={handleSubmit} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 32, width: "min(640px, 95vw)", maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 20 }}>
+      <form onSubmit={handleSubmit} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: 32, width: "min(660px, 95vw)", maxHeight: "90vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 20 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{task ? "Edit Task" : "New Task"}</h2>
+
+        {/* Templates (new task only) */}
+        {!task && (
+          <div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Templates</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {TASK_TEMPLATES.map((t) => (
+                <button key={t.name} type="button"
+                  onClick={() => { setName(t.name); setPrompt(t.prompt); }}
+                  style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "1px solid var(--border)", background: name === t.name ? "rgba(124,110,247,0.15)" : "var(--surface2)", color: name === t.name ? "var(--accent)" : "var(--text)", cursor: "pointer" }}>
+                  {t.icon} {t.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Name */}
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Task Name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Refactor auth in COMET-fy" style={inputStyle} />
+          <span style={labelStyle}>Task Name</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Update deps in my-repo" style={inputStyle} />
         </label>
 
         {/* Prompt */}
         <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Prompt / Instructions</span>
+          <span style={labelStyle}>Prompt / Instructions</span>
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} required rows={5} placeholder="Describe exactly what the agent should do..." style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }} />
         </label>
 
         {/* Repos */}
         <div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Target Repos</div>
+          <div style={labelStyle}>Target Repos</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
             {repos.map((r) => (
               <label key={r.path} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: selectedRepos.includes(r.path) ? "var(--surface2)" : "transparent", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer" }}>
@@ -120,7 +152,7 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
 
         {/* Permissions */}
         <div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Permissions</div>
+          <div style={labelStyle}>Permissions</div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             {(Object.keys(defaultPermissions) as (keyof TaskPermissions)[]).map((key) => (
               <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: permissions[key] ? "rgba(124,110,247,0.15)" : "var(--surface2)", border: `1px solid ${permissions[key] ? "var(--accent)" : "var(--border)"}`, borderRadius: 20, cursor: "pointer", fontSize: 13 }}>
@@ -133,7 +165,7 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
 
         {/* Schedule */}
         <div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Schedule</div>
+          <div style={labelStyle}>Schedule</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {SCHEDULE_PRESETS.map(({ label, s }) => {
               const active = scheduleMatches(schedule, s);
@@ -149,7 +181,7 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
 
         {/* Provider & Model */}
         <div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Provider &amp; Model</div>
+          <div style={labelStyle}>Provider &amp; Model</div>
           <select value={provider} onChange={(e) => handleProviderChange(e.target.value as ProviderKey)} style={inputStyle}>
             {(Object.keys(PROVIDERS) as ProviderKey[]).map((p) => (
               <option key={p} value={p}>{PROVIDERS[p].label}</option>
@@ -165,6 +197,70 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
           <span style={{ fontSize: 14 }}>Enabled (allow scheduled runs)</span>
         </label>
+
+        {/* Advanced */}
+        <div>
+          <button type="button" onClick={() => setShowAdvanced(!showAdvanced)}
+            style={{ fontSize: 12, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 6 }}>
+            {showAdvanced ? "▼" : "▶"} Advanced options
+          </button>
+          {showAdvanced && (
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+              <label style={checkRow}>
+                <input type="checkbox" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                <div>
+                  <div style={{ fontSize: 13 }}>Require approval before committing</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Agent writes files but holds commit until you approve in the run view</div>
+                </div>
+              </label>
+
+              <label style={checkRow}>
+                <input type="checkbox" checked={branchPerRun} onChange={(e) => setBranchPerRun(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                <div>
+                  <div style={{ fontSize: 13 }}>Create a branch per run</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Commits go to agent/&lt;runId&gt; instead of current branch</div>
+                </div>
+              </label>
+
+              {branchPerRun && (
+                <label style={checkRow}>
+                  <input type="checkbox" checked={githubPrOnPush} onChange={(e) => setGithubPrOnPush(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                  <div>
+                    <div style={{ fontSize: 13 }}>Open GitHub PR after push</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Requires Push permission and a GitHub token in Settings</div>
+                  </div>
+                </label>
+              )}
+
+              <label style={checkRow}>
+                <input type="checkbox" checked={retryOnFailure} onChange={(e) => setRetryOnFailure(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                <div>
+                  <div style={{ fontSize: 13 }}>Retry on failure</div>
+                </div>
+              </label>
+              {retryOnFailure && (
+                <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 13, color: "var(--text-muted)", whiteSpace: "nowrap" }}>Max retries:</span>
+                  <input type="number" min={1} max={10} value={maxRetries} onChange={(e) => setMaxRetries(+e.target.value)} style={{ ...inputStyle, width: 70 }} />
+                </label>
+              )}
+
+              {otherTasks.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 13, marginBottom: 6 }}>Trigger tasks on success</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {otherTasks.map((t) => (
+                      <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                        <input type="checkbox" checked={triggerTaskIds.includes(t.id)} onChange={() => toggleTrigger(t.id)} style={{ accentColor: "var(--accent)" }} />
+                        {t.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Validation error */}
         {formError && (
@@ -183,34 +279,18 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   );
 }
 
+const labelStyle: React.CSSProperties = { fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 };
+const checkRow: React.CSSProperties = { display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" };
+
 const inputStyle: React.CSSProperties = {
-  background: "var(--surface2)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "10px 12px",
-  color: "var(--text)",
-  fontSize: 14,
-  width: "100%",
-  outline: "none",
+  background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8,
+  padding: "10px 12px", color: "var(--text)", fontSize: 14, width: "100%", outline: "none",
 };
-
 const primaryBtn: React.CSSProperties = {
-  background: "var(--accent)",
-  color: "#fff",
-  border: "none",
-  borderRadius: 8,
-  padding: "10px 20px",
-  fontSize: 14,
-  fontWeight: 600,
-  cursor: "pointer",
+  background: "var(--accent)", color: "#fff", border: "none", borderRadius: 8,
+  padding: "10px 20px", fontSize: 14, fontWeight: 600, cursor: "pointer",
 };
-
 const secondaryBtn: React.CSSProperties = {
-  background: "var(--surface2)",
-  color: "var(--text)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "10px 20px",
-  fontSize: 14,
-  cursor: "pointer",
+  background: "var(--surface2)", color: "var(--text)", border: "1px solid var(--border)",
+  borderRadius: 8, padding: "10px 20px", fontSize: 14, cursor: "pointer",
 };
