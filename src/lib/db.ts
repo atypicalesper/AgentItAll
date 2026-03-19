@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
 import { join } from "path";
 import type { Task, RunLog, AppConfig } from "./types";
 
@@ -24,8 +24,6 @@ function write(file: string, data: unknown): void {
   const p = join(DATA_DIR, file);
   const tmp = p + ".tmp";
   writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
-  // atomic rename
-  const { renameSync } = require("fs");
   renameSync(tmp, p);
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTask, upsertTask, deleteTask } from "@/lib/db";
+import { refreshScheduler } from "@/lib/scheduler";
 
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -15,11 +16,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json();
   const updated = { ...task, ...body, id, updatedAt: new Date().toISOString() };
   upsertTask(updated);
+  refreshScheduler();
   return NextResponse.json(updated);
 }
 
 export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   deleteTask(id);
+  refreshScheduler();
   return NextResponse.json({ ok: true });
 }

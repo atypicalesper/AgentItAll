@@ -44,8 +44,15 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
     setPermissions((p) => ({ ...p, [key]: val }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (selectedRepos.length === 0) {
+      setFormError("Select at least one repo.");
+      return;
+    }
+    setFormError(null);
     onSave({ name, prompt, repos: selectedRepos, permissions, schedule, model, enabled, provider: "anthropic" });
   };
 
@@ -141,6 +148,13 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
           <span style={{ fontSize: 14 }}>Enabled (allow scheduled runs)</span>
         </label>
+
+        {/* Validation error */}
+        {formError && (
+          <div style={{ fontSize: 13, color: "var(--error)", padding: "8px 12px", background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8 }}>
+            {formError}
+          </div>
+        )}
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>

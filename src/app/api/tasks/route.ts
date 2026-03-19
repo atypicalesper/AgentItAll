@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTasks, upsertTask } from "@/lib/db";
+import { refreshScheduler } from "@/lib/scheduler";
 import type { Task } from "@/lib/types";
 
 export async function GET() {
@@ -15,5 +16,6 @@ export async function POST(req: Request) {
     updatedAt: new Date().toISOString(),
   };
   upsertTask(task);
+  refreshScheduler();
   return NextResponse.json(task, { status: 201 });
 }

@@ -1,4 +1,6 @@
 import { execSync } from "child_process";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 
 function run(cmd: string, cwd: string): string {
   try {
@@ -22,8 +24,6 @@ export function getFileTree(repoPath: string): string {
 }
 
 export function readFile(repoPath: string, filePath: string): string {
-  const { readFileSync, existsSync } = require("fs");
-  const { join } = require("path");
   const full = join(repoPath, filePath);
   if (!existsSync(full)) return "(file not found)";
   const content = readFileSync(full, "utf8") as string;
