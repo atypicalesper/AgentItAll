@@ -15,6 +15,8 @@
     "@ai-sdk/openai": "^3.0.41",
     "@anthropic-ai/sdk": "^0.80.0",
     "ai": "^6.0.116",
+    "better-sqlite3": "^12.8.0",
+    "chokidar": "^5.0.0",
     "diff": "^8.0.3",
     "next": "16.2.0",
     "node-cron": "^4.2.1",
@@ -26,6 +28,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/diff": "^7.0.2",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",

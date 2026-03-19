@@ -21,16 +21,61 @@ function duration(start: string, end?: string): string {
   return `${Math.round(ms / 60000)}m`;
 }
 
+function BarChart({ data, color = "var(--accent)" }: { data: { label: string; value: number }[]; color?: string }) {
+  const max = Math.max(...data.map((d) => d.value), 1);
+  const W = 480, H = 80, pad = 2;
+  const bw = (W - pad * (data.length - 1)) / data.length;
+  return (
+    <svg viewBox={`0 0 ${W} ${H + 20}`} style={{ width: "100%", overflow: "visible" }}>
+      {data.map((d, i) => {
+        const bh = (d.value / max) * H;
+        const x = i * (bw + pad);
+        return (
+          <g key={d.label}>
+            <rect x={x} y={H - bh} width={bw} height={bh} rx={2} fill={d.value ? color : "var(--surface2)"} opacity={0.85} />
+            <text x={x + bw / 2} y={H + 14} textAnchor="middle" fontSize={9} fill="var(--text-muted)">{d.label}</text>
+            {d.value > 0 && <text x={x + bw / 2} y={H - bh - 3} textAnchor="middle" fontSize={9} fill="var(--text-muted)">{d.value}</text>}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function buildDailyData(runs: RunLog[], days = 14): { label: string; value: number }[] {
+  const result: { label: string; value: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const label = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+    result.push({ label, value: runs.filter((r) => r.startedAt.startsWith(key)).length });
+  }
+  return result;
+}
+
+function buildTokenData(runs: RunLog[], days = 14): { label: string; value: number }[] {
+  const result: { label: string; value: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const label = d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+    const tokens = runs.filter((r) => r.startedAt.startsWith(key)).reduce((s, r) => s + (r.tokenUsage?.totalTokens ?? 0), 0);
+    result.push({ label, value: Math.round(tokens / 1000) });
+  }
+  return result;
+}
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [runs, setRuns] = useState<RunLog[]>([]);
 
   useEffect(() => {
     fetch("/api/tasks").then((r) => r.json()).then(setTasks);
-    fetch("/api/runs").then((r) => r.json()).then(setRuns);
-    const id = setInterval(() => {
-      fetch("/api/runs").then((r) => r.json()).then(setRuns);
-    }, 5000);
+    const loadRuns = () => fetch("/api/runs").then((r) => r.json()).then((d: { runs: RunLog[] }) => setRuns(d.runs ?? d));
+    loadRuns();
+    const id = setInterval(loadRuns, 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -70,6 +115,20 @@ export default function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Charts */}
+      {runs.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 28 }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>Runs / day (14d)</div>
+            <BarChart data={buildDailyData(runs)} color="var(--accent)" />
+          </div>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 }}>Tokens (k) / day (14d)</div>
+            <BarChart data={buildTokenData(runs)} color="var(--success)" />
+          </div>
+        </div>
+      )}
 
       {/* Pending approvals banner */}
       {pending.length > 0 && (

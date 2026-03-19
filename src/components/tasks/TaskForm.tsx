@@ -57,6 +57,15 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   const [retryOnFailure, setRetryOnFailure] = useState(task?.retryOnFailure ?? false);
   const [maxRetries, setMaxRetries] = useState(task?.maxRetries ?? 3);
   const [triggerTaskIds, setTriggerTaskIds] = useState<string[]>(task?.triggerTaskIds ?? []);
+  // New fields
+  const [dryRun, setDryRun] = useState(task?.dryRun ?? false);
+  const [costBudget, setCostBudget] = useState(task?.costBudget ?? "");
+  const [inputVars, setInputVars] = useState((task?.inputVars ?? []).join(", "));
+  const [slackWebhook, setSlackWebhook] = useState(task?.slackWebhook ?? "");
+  const [discordWebhook, setDiscordWebhook] = useState(task?.discordWebhook ?? "");
+  const [createIssueOnFailure, setCreateIssueOnFailure] = useState(task?.createIssueOnFailure ?? false);
+  const [watchPaths, setWatchPaths] = useState((task?.watchPaths ?? []).join("\n"));
+  const [cronExpr, setCronExpr] = useState(task?.schedule?.kind === "cron" ? task.schedule.expr : "");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -93,11 +102,21 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
     e.preventDefault();
     if (selectedRepos.length === 0) { setFormError("Select at least one repo."); return; }
     setFormError(null);
+    const resolvedSchedule: typeof schedule = cronExpr.trim()
+      ? { kind: "cron", expr: cronExpr.trim() }
+      : schedule;
     onSave({
-      name, prompt, repos: selectedRepos, permissions, schedule, model, enabled, provider,
+      name, prompt, repos: selectedRepos, permissions, schedule: resolvedSchedule, model, enabled, provider,
       branchPerRun, githubPrOnPush, requiresApproval,
       retryOnFailure, maxRetries: retryOnFailure ? maxRetries : undefined,
       triggerTaskIds: triggerTaskIds.length ? triggerTaskIds : undefined,
+      dryRun,
+      costBudget: costBudget !== "" ? Number(costBudget) : undefined,
+      inputVars: inputVars.trim() ? inputVars.split(",").map((s) => s.trim()).filter(Boolean) : undefined,
+      slackWebhook: slackWebhook.trim() || undefined,
+      discordWebhook: discordWebhook.trim() || undefined,
+      createIssueOnFailure: createIssueOnFailure || undefined,
+      watchPaths: watchPaths.trim() ? watchPaths.split("\n").map((s) => s.trim()).filter(Boolean) : undefined,
     });
   };
 
@@ -258,6 +277,64 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
                   </div>
                 </div>
               )}
+
+              {/* Dry run */}
+              <label style={checkRow}>
+                <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                <div>
+                  <div style={{ fontSize: 13 }}>Dry run</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Agent reads and plans but never writes files or commits</div>
+                </div>
+              </label>
+
+              {/* Cost budget */}
+              <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)", whiteSpace: "nowrap" }}>Cost budget (USD):</span>
+                <input type="number" min={0} step={0.01} value={costBudget} onChange={(e) => setCostBudget(e.target.value)}
+                  placeholder="e.g. 0.05" style={{ ...inputStyle, width: 90 }} />
+              </label>
+
+              {/* Custom cron */}
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Custom cron expression (overrides schedule preset)</span>
+                <input value={cronExpr} onChange={(e) => setCronExpr(e.target.value)}
+                  placeholder="e.g. 0 9 * * 1-5  (weekdays 9am)" style={inputStyle} />
+              </label>
+
+              {/* Input variables */}
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Input variables (comma-separated)</span>
+                <input value={inputVars} onChange={(e) => setInputVars(e.target.value)}
+                  placeholder="e.g. version, branch" style={inputStyle} />
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Use {"{{version}}"} in your prompt — values passed at run time</span>
+              </label>
+
+              {/* File watch paths */}
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Watch paths (one per line)</span>
+                <textarea value={watchPaths} onChange={(e) => setWatchPaths(e.target.value)}
+                  rows={3} placeholder={"/path/to/watch\n/another/path"} style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace" }} />
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Task runs automatically when any of these files or directories change</span>
+              </label>
+
+              {/* Notifications */}
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Slack webhook URL</span>
+                <input value={slackWebhook} onChange={(e) => setSlackWebhook(e.target.value)}
+                  placeholder="https://hooks.slack.com/services/…" style={inputStyle} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Discord webhook URL</span>
+                <input value={discordWebhook} onChange={(e) => setDiscordWebhook(e.target.value)}
+                  placeholder="https://discord.com/api/webhooks/…" style={inputStyle} />
+              </label>
+              <label style={checkRow}>
+                <input type="checkbox" checked={createIssueOnFailure} onChange={(e) => setCreateIssueOnFailure(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
+                <div>
+                  <div style={{ fontSize: 13 }}>Open GitHub issue on failure</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Requires GitHub token in Settings → Integrations</div>
+                </div>
+              </label>
             </div>
           )}
         </div>

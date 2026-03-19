@@ -25,6 +25,7 @@ const runStatusColor: Record<string, string> = {
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [lastRuns, setLastRuns] = useState<Record<string, RunLog>>({});
+  const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editTask, setEditTask] = useState<Task | undefined>();
   // map taskId → latest runId while running
@@ -33,7 +34,8 @@ export default function TasksPage() {
 
   const load = useCallback(() => {
     fetch("/api/tasks").then((r) => r.json()).then(setTasks);
-    fetch("/api/runs").then((r) => r.json()).then((runs: RunLog[]) => {
+    fetch("/api/runs").then((r) => r.json()).then((d: { runs: RunLog[] } | RunLog[]) => {
+      const runs = Array.isArray(d) ? d : d.runs;
       const map: Record<string, RunLog> = {};
       for (const run of runs) {
         if (!map[run.taskId] || run.startedAt > map[run.taskId].startedAt) {
@@ -136,8 +138,13 @@ export default function TasksPage() {
         </div>
       )}
 
+      <div style={{ marginBottom: 16 }}>
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", color: "var(--text)", fontSize: 13, width: "100%", outline: "none" }} />
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {tasks.map((task) => {
+        {tasks.filter((t) => !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.prompt.toLowerCase().includes(search.toLowerCase())).map((task) => {
           const { label, color } = scheduleBadge(task);
           const runId = activeRuns[task.id];
           const isRunning = !!runId;

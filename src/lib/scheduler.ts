@@ -9,16 +9,12 @@ const jobs = new Map<string, import("node-cron").ScheduledTask>();
 
 function toCronExpression(schedule: ScheduleType): string | null {
   switch (schedule.kind) {
-    case "manual":
-      return null;
-    case "hourly":
-      return "0 * * * *";
-    case "daily":
-      return `${schedule.minute} ${schedule.hour} * * *`;
-    case "weekly":
-      return `${schedule.minute} ${schedule.hour} * * ${schedule.dayOfWeek}`;
-    case "monthly":
-      return `${schedule.minute} ${schedule.hour} ${schedule.dayOfMonth} * *`;
+    case "manual":  return null;
+    case "hourly":  return "0 * * * *";
+    case "daily":   return `${schedule.minute} ${schedule.hour} * * *`;
+    case "weekly":  return `${schedule.minute} ${schedule.hour} * * ${schedule.dayOfWeek}`;
+    case "monthly": return `${schedule.minute} ${schedule.hour} ${schedule.dayOfMonth} * *`;
+    case "cron":    return schedule.expr;
   }
 }
 

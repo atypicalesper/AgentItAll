@@ -7,7 +7,8 @@ export type ScheduleType =
   | { kind: "hourly" }
   | { kind: "daily"; hour: number; minute: number }
   | { kind: "weekly"; dayOfWeek: number; hour: number; minute: number }
-  | { kind: "monthly"; dayOfMonth: number; hour: number; minute: number };
+  | { kind: "monthly"; dayOfMonth: number; hour: number; minute: number }
+  | { kind: "cron"; expr: string };
 
 // ── Task ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,14 @@ export interface Task {
   retryOnFailure?: boolean;
   maxRetries?: number;
   triggerTaskIds?: string[];
+  // New features
+  inputVars?: string[];           // variable names like ["version","branch"]
+  dryRun?: boolean;               // write/commit tools are no-ops
+  costBudget?: number;            // stop if estimated cost (USD) exceeds this
+  slackWebhook?: string;          // Slack incoming webhook URL
+  discordWebhook?: string;        // Discord webhook URL
+  createIssueOnFailure?: boolean; // open GitHub issue on failure
+  watchPaths?: string[];          // file paths to watch for changes
 }
 
 // ── RunLog ───────────────────────────────────────────────────────────────────
@@ -76,6 +85,9 @@ export interface RunLog {
   prUrl?: string;
   approvalStatus?: ApprovalStatus;
   pendingCommitMessage?: string;
+  isDryRun?: boolean;
+  estimatedCost?: number;
+  inputVarValues?: Record<string, string>;
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────

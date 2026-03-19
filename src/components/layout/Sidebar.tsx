@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 const nav = [
   { href: "/", label: "Dashboard", icon: "🏠", exact: true },
@@ -12,26 +13,47 @@ const nav = [
 
 export default function Sidebar() {
   const path = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <aside
       style={{
-        width: 220,
+        width: collapsed ? 52 : 220,
         background: "var(--surface)",
         borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
         padding: "24px 0",
         flexShrink: 0,
+        transition: "width 0.2s ease",
+        overflow: "hidden",
       }}
     >
-      <div style={{ padding: "0 20px 28px" }}>
-        <div style={{ fontWeight: 700, fontSize: 18, color: "var(--accent)", letterSpacing: -0.5 }}>
-          agentItAll
-        </div>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-          local AI agent dashboard
-        </div>
+      {/* Logo + collapse toggle */}
+      <div style={{ padding: "0 12px 28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {!collapsed && (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 18, color: "var(--accent)", letterSpacing: -0.5 }}>agentItAll</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>local AI agent dashboard</div>
+          </div>
+        )}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-muted)",
+            fontSize: 16,
+            padding: 4,
+            borderRadius: 6,
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          {collapsed ? "▶" : "◀"}
+        </button>
       </div>
 
       <nav style={{ flex: 1 }}>
@@ -41,11 +63,13 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
+              title={collapsed ? label : undefined}
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
-                padding: "10px 20px",
+                gap: collapsed ? 0 : 10,
+                padding: collapsed ? "10px 0" : "10px 20px",
+                justifyContent: collapsed ? "center" : "flex-start",
                 fontSize: 14,
                 fontWeight: active ? 600 : 400,
                 color: active ? "var(--accent)" : "var(--text-muted)",
@@ -55,8 +79,8 @@ export default function Sidebar() {
                 transition: "all 0.15s",
               }}
             >
-              <span>{icon}</span>
-              {label}
+              <span style={{ fontSize: collapsed ? 18 : 14 }}>{icon}</span>
+              {!collapsed && label}
             </Link>
           );
         })}

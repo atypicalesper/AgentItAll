@@ -26,6 +26,12 @@ export default function RunDetailPage() {
     await fetch(`/api/runs/${id}/cancel`, { method: "POST" });
   };
 
+  const rerun = async () => {
+    const res = await fetch(`/api/runs/${id}/rerun`, { method: "POST" });
+    const { runId } = await res.json() as { runId: string };
+    window.location.href = `/runs/${runId}`;
+  };
+
   const approve = async (action: "approve" | "reject") => {
     await fetch(`/api/runs/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
     setRun((r) => r ? { ...r, approvalStatus: action === "approve" ? "approved" : "rejected" } : r);
@@ -70,11 +76,18 @@ export default function RunDetailPage() {
             {run.pushed && <span style={{ marginLeft: 10, color: "var(--success)" }}>· pushed</span>}
           </div>
         </div>
-        {run.status === "running" && (
-          <button onClick={cancel} style={{ fontSize: 13, padding: "6px 14px", background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, color: "var(--error)", cursor: "pointer" }}>
-            Cancel Run
-          </button>
-        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {run.status !== "running" && (
+            <button onClick={rerun} style={{ fontSize: 13, padding: "6px 14px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text)", cursor: "pointer" }}>
+              ↺ Re-run
+            </button>
+          )}
+          {run.status === "running" && (
+            <button onClick={cancel} style={{ fontSize: 13, padding: "6px 14px", background: "rgba(248,113,113,0.1)", border: "1px solid var(--error)", borderRadius: 8, color: "var(--error)", cursor: "pointer" }}>
+              Cancel Run
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Repos */}

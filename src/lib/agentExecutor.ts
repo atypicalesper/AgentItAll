@@ -3,7 +3,7 @@ import { z } from "zod";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { execSync } from "child_process";
-import type { Task, RunLog, FileEdit, TokenUsage } from "./types";
+import type { Task, RunLog, TokenUsage } from "./types";
 import { getConfig, upsertRun, getRun, getTask } from "./db";
 import {
   getFileTree, readFile, getDiff, commitAll, push,
@@ -14,6 +14,8 @@ import { sendEmail } from "./emailer";
 import { getModel, PROVIDERS } from "./providers";
 import { loadMemory, appendMemory } from "./memory";
 import { parseDiff } from "./diffParser";
+import { estimateCost } from "./costEstimator";
+import { notifySuccess, notifyFailure } from "./notifier";
 import type { ProviderKey } from "./providers";
 
 const MAX_STEPS = 20;
@@ -35,7 +37,8 @@ function runCmd(cwd: string, command: string): string {
 export async function runAgent(
   task: Task,
   runId: string,
-  trigger: "manual" | "scheduled"
+  trigger: "manual" | "scheduled",
+  inputVarValues?: Record<string, string>,
 ): Promise<void> {
   const config = getConfig();
   createStream(runId);
@@ -53,6 +56,8 @@ export async function runAgent(
     commandsRun: [],
     pushed: false,
     emailSent: false,
+    isDryRun: task.dryRun ?? false,
+    inputVarValues,
   };
   upsertRun(run);
 
@@ -104,6 +109,15 @@ export async function runAgent(
         ? `\n\nPrevious run summaries:\n${memories.map((m, i) => `${i + 1}. ${m}`).join("\n")}`
         : "";
 
+      // ── Variable substitution & dry-run ─────────────────────────────────
+      const dryRunNote = task.dryRun ? "\n\nDRY RUN MODE: Do not actually write files or commit. Only analyse and report what you would do." : "";
+      let resolvedPrompt = task.prompt;
+      if (inputVarValues) {
+        for (const [k, v] of Object.entries(inputVarValues)) {
+          resolvedPrompt = resolvedPrompt.replaceAll(`{{${k}}}`, v);
+        }
+      }
+
       const systemPrompt = `You are an autonomous coding agent working on one or more git repositories.
 
 Available tools: read_file, write_file, run_command (if permitted), commit (if permitted), task_complete.
@@ -111,12 +125,12 @@ Available tools: read_file, write_file, run_command (if permitted), commit (if p
 Rules:
 - Read files before editing them
 - Make targeted, minimal changes
-- Call task_complete when done with a clear summary${memorySection}
+- Call task_complete when done with a clear summary${dryRunNote}${memorySection}
 
 Repository context:
 ${repoContexts}`;
 
-      log(runId, `\n[agent] Starting: ${task.name} (${provider}/${task.model})${attempt > 1 ? ` attempt ${attempt}` : ""}\n\n`);
+      log(runId, `\n[agent] Starting: ${task.name} (${provider}/${task.model})${task.dryRun ? " [DRY RUN]" : ""}${attempt > 1 ? ` attempt ${attempt}` : ""}\n\n`);
 
       // ── Tool definitions ─────────────────────────────────────────────────
       const pendingWrites = new Map<string, string>();
@@ -144,6 +158,10 @@ ${repoContexts}`;
             content: z.string().describe("Full file content to write"),
           }),
           execute: async (input) => {
+            if (task.dryRun) {
+              log(runId, `[tool] write_file (dry-run): ${input.file_path}\n`);
+              return `(dry-run) Would write ${input.file_path} (${input.content.length} chars)`;
+            }
             log(runId, `[tool] write_file: ${input.file_path}\n`);
             const fullPath = join(input.repo_path, input.file_path);
             const dir = dirname(fullPath);
@@ -178,6 +196,10 @@ ${repoContexts}`;
           }),
           execute: async (input) => {
             if (!task.permissions.commit) return "(permission denied: commit is disabled)";
+            if (task.dryRun) {
+              log(runId, `[tool] commit (dry-run): ${input.message}\n`);
+              return `(dry-run) Would commit: "${input.message}"`;
+            }
             if (task.requiresApproval) {
               pendingCommitMessage = input.message;
               log(runId, `[tool] commit held for approval: ${input.message}\n`);
@@ -210,7 +232,7 @@ ${repoContexts}`;
         tools,
         stopWhen: stepCountIs(MAX_STEPS),
         system: systemPrompt,
-        messages: [{ role: "user", content: task.prompt }],
+        messages: [{ role: "user", content: resolvedPrompt }],
       });
 
       for await (const chunk of result.textStream) {
@@ -219,13 +241,18 @@ ${repoContexts}`;
         upsertRun(run);
       }
 
-      // Capture token usage (AI SDK v6 uses inputTokens/outputTokens)
+      // Capture token usage + cost estimate
       try {
         const u = await result.usage;
         if (u) {
           const prompt = (u as { inputTokens?: number }).inputTokens ?? 0;
           const completion = (u as { outputTokens?: number }).outputTokens ?? 0;
           run.tokenUsage = { promptTokens: prompt, completionTokens: completion, totalTokens: prompt + completion };
+          run.estimatedCost = estimateCost(provider, prompt, completion);
+          // Cost budget enforcement (log overage, still mark success — run already finished)
+          if (task.costBudget && run.estimatedCost > task.costBudget) {
+            log(runId, `\n[agent] ⚠ Cost budget exceeded: $${run.estimatedCost.toFixed(4)} > $${task.costBudget}\n`);
+          }
         }
       } catch { /* some providers don't return usage */ }
 
@@ -311,6 +338,9 @@ ${repoContexts}`;
         log(runId, `\n[email] Failed to send: ${String(emailErr)}\n`);
       }
 
+      // Slack / Discord notifications
+      notifySuccess(task, run).catch(() => {});
+
       // Task chaining
       if (task.triggerTaskIds?.length) {
         for (const tid of task.triggerTaskIds) {
@@ -348,6 +378,14 @@ ${repoContexts}`;
     const provider = (task.provider ?? config.ai.provider) as ProviderKey;
     const body = `# agentItAll Run FAILED\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Trigger:** ${trigger}${(run.attempt ?? 1) > 1 ? `\n**Attempts:** ${run.attempt}` : ""}\n\n## Error\n${run.error}`;
     sendEmail(config.smtp, `[agentItAll] ✗ ${task.name} — failed`, body).catch(() => {});
+
+    // Slack / Discord / GitHub Issue notifications
+    let ownerRepo: { owner: string; repo: string } | undefined;
+    try {
+      const remote = getRemoteUrl(task.repos[0]);
+      ownerRepo = parseOwnerRepo(remote) ?? undefined;
+    } catch { /* no remote */ }
+    notifyFailure(task, run, config, ownerRepo).catch(() => {});
   }
 
   closeStream(runId);
