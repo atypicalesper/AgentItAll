@@ -17,6 +17,7 @@
     "ai": "^6.0.116",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^5.0.0",
+    "cron-parser": "^5.5.0",
     "diff": "^8.0.3",
     "next": "16.2.0",
     "node-cron": "^4.2.1",

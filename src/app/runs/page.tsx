@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { RunLog } from "@/lib/types";
 import DiffViewer from "@/components/runs/DiffViewer";
 
@@ -31,6 +32,7 @@ export default function RunsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterName, setFilterName] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const router = useRouter();
 
   const load = useCallback(() => {
     const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
@@ -78,10 +80,18 @@ export default function RunsPage() {
           <p style={{ margin: "4px 0 0", color: "var(--text-muted)", fontSize: 14 }}>{total} total run{total !== 1 ? "s" : ""}</p>
         </div>
         {selected.size > 0 && (
-          <button onClick={deleteBulk}
-            style={{ background: "rgba(248,113,113,0.1)", color: "var(--error)", border: "1px solid var(--error)", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}>
-            Delete {selected.size} selected
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            {selected.size === 2 && (
+              <button onClick={() => { const [a, b] = [...selected]; router.push(`/runs/compare?a=${a}&b=${b}`); }}
+                style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer", color: "var(--text)" }}>
+                ⇄ Compare 2
+              </button>
+            )}
+            <button onClick={deleteBulk}
+              style={{ background: "rgba(248,113,113,0.1)", color: "var(--error)", border: "1px solid var(--error)", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}>
+              Delete {selected.size} selected
+            </button>
+          </div>
         )}
       </div>
 

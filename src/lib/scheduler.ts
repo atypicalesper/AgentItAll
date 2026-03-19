@@ -1,8 +1,9 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cron = require("node-cron") as typeof import("node-cron");
 import type { Task, ScheduleType } from "./types";
-import { getTasks, getRuns } from "./db";
+import { getTasks, getRuns, getConfig } from "./db";
 import { runAgent } from "./agentExecutor";
+import { sendDailyDigest } from "./digest";
 
 let initialized = false;
 const jobs = new Map<string, import("node-cron").ScheduledTask>();
@@ -49,6 +50,20 @@ function registerTask(task: Task) {
   console.log(`[scheduler] Registered: ${task.name} → ${expr}`);
 }
 
+let digestJob: import("node-cron").ScheduledTask | null = null;
+
+function registerDigest() {
+  digestJob?.stop();
+  const config = getConfig();
+  if (!config.digest?.enabled) return;
+  const hour = config.digest.hour ?? 8;
+  const expr = `0 ${hour} * * *`;
+  digestJob = cron.schedule(expr, () => {
+    sendDailyDigest(getConfig()).catch(console.error);
+  });
+  console.log(`[scheduler] Daily digest registered at ${hour}:00`);
+}
+
 export function initScheduler() {
   if (initialized) return;
   initialized = true;
@@ -57,6 +72,7 @@ export function initScheduler() {
   for (const task of tasks) {
     registerTask(task);
   }
+  registerDigest();
 
   console.log(`[scheduler] Initialized with ${tasks.length} tasks.`);
 }
@@ -77,4 +93,5 @@ export function refreshScheduler() {
   for (const task of tasks) {
     registerTask(task);
   }
+  registerDigest();
 }

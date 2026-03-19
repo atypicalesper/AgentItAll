@@ -4,16 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { Task, RunLog } from "@/lib/types";
 import TaskForm from "@/components/tasks/TaskForm";
+import { getNextRun, formatTimeUntil, describeSchedule } from "@/lib/scheduleUtils";
 
 const scheduleBadge = (task: Task) => {
   const s = task.schedule;
   if (!task.enabled) return { label: "Disabled", color: "var(--text-muted)" };
   if (s.kind === "manual") return { label: "Manual", color: "var(--text-muted)" };
-  if (s.kind === "hourly") return { label: "Hourly", color: "var(--warning)" };
-  if (s.kind === "daily") return { label: `Daily ${(s as {hour:number}).hour}:${String((s as {minute:number}).minute).padStart(2,"0")}`, color: "var(--success)" };
-  if (s.kind === "weekly") return { label: "Weekly", color: "var(--accent)" };
-  if (s.kind === "monthly") return { label: "Monthly", color: "var(--accent)" };
-  return { label: "", color: "" };
+  return { label: describeSchedule(s), color: s.kind === "hourly" ? "var(--warning)" : "var(--success)" };
 };
 
 const runStatusColor: Record<string, string> = {
@@ -158,6 +155,7 @@ export default function TasksPage() {
                     {task.name}
                   </Link>
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--surface2)", color, fontWeight: 600 }}>{label}</span>
+                  {task.enabled && task.schedule.kind !== "manual" && (() => { const next = getNextRun(task.schedule); return next ? <span style={{ fontSize: 11, color: "var(--text-muted)" }}>in {formatTimeUntil(next)}</span> : null; })()}
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{task.model.split("-").slice(1, 3).join("-")}</span>
                   {lastRun && !isRunning && (
                     <Link href={`/runs/${lastRun.id}`} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--surface2)", color: runStatusColor[lastRun.status] ?? "var(--text-muted)", fontWeight: 600, textDecoration: "none" }}>

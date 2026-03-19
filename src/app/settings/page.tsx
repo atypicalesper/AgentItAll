@@ -194,6 +194,24 @@ export default function SettingsPage() {
         </button>
       </Section>
 
+      {/* Daily Digest */}
+      <Section title="Daily Digest">
+        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <input type="checkbox" checked={config.digest?.enabled ?? false}
+            onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { hour: 8 }), enabled: e.target.checked } })}
+            style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
+          <span style={{ fontSize: 14 }}>Send daily digest email</span>
+        </label>
+        <Field label="Send at hour (0–23)">
+          <input type="number" min={0} max={23} value={config.digest?.hour ?? 8}
+            onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { enabled: false }), hour: +e.target.value } })}
+            style={{ ...inputStyle, width: 80 }} />
+        </Field>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          Digest requires SMTP to be configured. It summarises the last 24 h of runs.
+        </div>
+      </Section>
+
       {/* Security */}
       <Section title="Security">
         <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>

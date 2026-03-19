@@ -45,6 +45,14 @@ export interface Task {
   discordWebhook?: string;        // Discord webhook URL
   createIssueOnFailure?: boolean; // open GitHub issue on failure
   watchPaths?: string[];          // file paths to watch for changes
+  customTools?: CustomTool[];     // extra shell-command tools injected into the agent
+  envVars?: Record<string, string>; // env vars injected into run_command calls
+}
+
+export interface CustomTool {
+  name: string;
+  description: string;
+  command: string; // shell command; {{repo_path}} is substituted at call time
 }
 
 // ── RunLog ───────────────────────────────────────────────────────────────────
@@ -113,6 +121,11 @@ export interface SMTPConfig {
   enabled: boolean;
 }
 
+export interface DigestConfig {
+  enabled: boolean;
+  hour: number;   // 0-23, time to send daily digest
+}
+
 export interface AppConfig {
   baseDir: string;
   theme: "dark" | "light";
@@ -121,6 +134,7 @@ export interface AppConfig {
   password?: string;
   githubToken?: string;
   webhookSecret?: string;
+  digest?: DigestConfig;
   updatedAt: string;
 }
 

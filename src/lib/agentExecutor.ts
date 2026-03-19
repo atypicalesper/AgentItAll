@@ -1,8 +1,8 @@
 import { streamText, tool, stepCountIs } from "ai";
 import { z } from "zod";
-import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import type { Task, RunLog, TokenUsage } from "./types";
 import { getConfig, upsertRun, getRun, getTask } from "./db";
 import {
@@ -14,7 +14,7 @@ import { sendEmail } from "./emailer";
 import { getModel, PROVIDERS } from "./providers";
 import { loadMemory, appendMemory } from "./memory";
 import { parseDiff } from "./diffParser";
-import { estimateCost } from "./costEstimator";
+import { estimateCost, budgetToMaxTokens } from "./costEstimator";
 import { notifySuccess, notifyFailure } from "./notifier";
 import type { ProviderKey } from "./providers";
 
@@ -26,8 +26,12 @@ function log(runId: string, msg: string) {
 }
 
 function runCmd(cwd: string, command: string): string {
+  return runCmdEnv(cwd, command);
+}
+
+function runCmdEnv(cwd: string, command: string, env?: NodeJS.ProcessEnv): string {
   try {
-    return execSync(command, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    return execSync(command, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], env }).trim();
   } catch (e: unknown) {
     const err = e as { stderr?: Buffer; stdout?: Buffer };
     return (err.stderr?.toString() ?? err.stdout?.toString() ?? String(e)).slice(0, 2000);
@@ -172,6 +176,62 @@ ${repoContexts}`;
           },
         }),
 
+        search_files: tool({
+          description: "Search for a pattern across files in a repository using ripgrep (falls back to grep)",
+          inputSchema: z.object({
+            repo_path: z.string(),
+            pattern: z.string().describe("Regex or literal search pattern"),
+            glob: z.string().optional().describe("File glob filter, e.g. '*.ts'"),
+            context_lines: z.number().optional().describe("Lines of context around each match (default 2)"),
+          }),
+          execute: async (input) => {
+            log(runId, `[tool] search_files: ${input.pattern}${input.glob ? ` [${input.glob}]` : ""}\n`);
+            const ctx = String(input.context_lines ?? 2);
+            try {
+              const args = ["--no-heading", "-n", "--color=never", "-C", ctx];
+              if (input.glob) args.push("--glob", input.glob);
+              args.push(input.pattern, ".");
+              const out = execFileSync("rg", args, { cwd: input.repo_path, encoding: "utf8", stdio: ["pipe","pipe","pipe"] }).trim();
+              return out.slice(0, 8000) || "(no matches)";
+            } catch {
+              // fallback to grep
+              try {
+                const gArgs = ["-rn", `--include=${input.glob ?? "*"}`, `-C${ctx}`, input.pattern, "."];
+                const out = execFileSync("grep", gArgs, { cwd: input.repo_path, encoding: "utf8", stdio: ["pipe","pipe","pipe"] }).trim();
+                return out.slice(0, 8000) || "(no matches)";
+              } catch { return "(no matches)"; }
+            }
+          },
+        }),
+
+        patch_file: tool({
+          description: "Apply targeted search-and-replace edits to a file without rewriting the whole thing",
+          inputSchema: z.object({
+            repo_path: z.string(),
+            file_path: z.string(),
+            edits: z.array(z.object({
+              search: z.string().describe("Exact string to find (must exist in file)"),
+              replace: z.string().describe("String to replace it with"),
+            })).describe("List of search/replace pairs applied in order"),
+          }),
+          execute: async (input) => {
+            if (task.dryRun) return `(dry-run) Would patch ${input.file_path} with ${input.edits.length} edit(s)`;
+            log(runId, `[tool] patch_file: ${input.file_path} (${input.edits.length} edit(s))\n`);
+            const fullPath = join(input.repo_path, input.file_path);
+            if (!existsSync(fullPath)) return `Error: file not found: ${input.file_path}`;
+            let content = readFileSync(fullPath, "utf8");
+            for (const edit of input.edits) {
+              if (!content.includes(edit.search)) {
+                return `Error: search string not found in ${input.file_path}:\n"${edit.search.slice(0, 120)}"`;
+              }
+              content = content.replace(edit.search, edit.replace);
+            }
+            writeFileSync(fullPath, content, "utf8");
+            pendingWrites.set(`${input.repo_path}::${input.file_path}`, content);
+            return `Patched ${input.file_path}: ${input.edits.length} edit(s) applied`;
+          },
+        }),
+
         run_command: tool({
           description: "Run a shell command in a repository directory",
           inputSchema: z.object({
@@ -182,7 +242,8 @@ ${repoContexts}`;
             if (!task.permissions.runCommands) return "(permission denied: runCommands is disabled)";
             log(runId, `[tool] run_command: ${input.command}\n`);
             run.commandsRun.push(input.command);
-            const result = runCmd(input.repo_path, input.command);
+            const env = task.envVars ? { ...process.env, ...task.envVars } : undefined;
+            const result = runCmdEnv(input.repo_path, input.command, env);
             log(runId, result + "\n");
             return result;
           },
@@ -225,14 +286,36 @@ ${repoContexts}`;
           },
         }),
       };
+      // ── Custom tools ─────────────────────────────────────────────────────
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allTools: Record<string, any> = { ...tools };
+      for (const ct of task.customTools ?? []) {
+        const safeKey = ct.name.replace(/[^a-zA-Z0-9_]/g, "_");
+        allTools[safeKey] = tool({
+          description: ct.description,
+          inputSchema: z.object({ repo_path: z.string() }),
+          execute: async (input) => {
+            if (!task.permissions.runCommands) return "(permission denied: runCommands is disabled)";
+            const cmd = ct.command.replace("{{repo_path}}", input.repo_path);
+            log(runId, `[tool] ${ct.name}: ${cmd}\n`);
+            run.commandsRun.push(cmd);
+            const env = task.envVars ? { ...process.env, ...task.envVars } : undefined;
+            const result = runCmdEnv(input.repo_path, cmd, env);
+            log(runId, result + "\n");
+            return result;
+          },
+        });
+      }
 
       // ── Run the agent ────────────────────────────────────────────────────
+      const maxTok = task.costBudget ? budgetToMaxTokens(provider, task.costBudget) : undefined;
       const result = streamText({
         model,
-        tools,
+        tools: allTools,
         stopWhen: stepCountIs(MAX_STEPS),
         system: systemPrompt,
         messages: [{ role: "user", content: resolvedPrompt }],
+        ...(maxTok ? { maxTokens: maxTok } : {}),
       });
 
       for await (const chunk of result.textStream) {

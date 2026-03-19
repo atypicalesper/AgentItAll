@@ -22,3 +22,10 @@ export function formatCost(usd: number): string {
   if (usd < 0.01)  return `$${usd.toFixed(4)}`;
   return `$${usd.toFixed(3)}`;
 }
+
+/** Convert a USD budget to a max-token ceiling (uses output-token price, conservative). */
+export function budgetToMaxTokens(provider: ProviderKey, budgetUsd: number): number | undefined {
+  const p = PRICING[provider];
+  if (!p || p.output === 0) return undefined;
+  return Math.max(256, Math.floor((budgetUsd / p.output) * 1_000_000));
+}

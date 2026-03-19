@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Task, TaskPermissions, ScheduleType } from "@/lib/types";
+import type { Task, TaskPermissions, ScheduleType, CustomTool } from "@/lib/types";
 import { PROVIDERS } from "@/lib/providers";
 import type { ProviderKey } from "@/lib/providers";
 import { TASK_TEMPLATES } from "@/lib/taskTemplates";
@@ -66,6 +66,10 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   const [createIssueOnFailure, setCreateIssueOnFailure] = useState(task?.createIssueOnFailure ?? false);
   const [watchPaths, setWatchPaths] = useState((task?.watchPaths ?? []).join("\n"));
   const [cronExpr, setCronExpr] = useState(task?.schedule?.kind === "cron" ? task.schedule.expr : "");
+  const [customTools, setCustomTools] = useState<CustomTool[]>(task?.customTools ?? []);
+  const [envVarsText, setEnvVarsText] = useState(
+    Object.entries(task?.envVars ?? {}).map(([k, v]) => `${k}=${v}`).join("\n")
+  );
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -117,6 +121,13 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
       discordWebhook: discordWebhook.trim() || undefined,
       createIssueOnFailure: createIssueOnFailure || undefined,
       watchPaths: watchPaths.trim() ? watchPaths.split("\n").map((s) => s.trim()).filter(Boolean) : undefined,
+      customTools: customTools.length ? customTools : undefined,
+      envVars: envVarsText.trim() ? Object.fromEntries(
+        envVarsText.split("\n").map((s) => s.trim()).filter(Boolean).map((line) => {
+          const idx = line.indexOf("=");
+          return idx > 0 ? [line.slice(0, idx), line.slice(idx + 1)] : [line, ""];
+        })
+      ) : undefined,
     });
   };
 
@@ -335,6 +346,40 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
                   <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Requires GitHub token in Settings → Integrations</div>
                 </div>
               </label>
+
+              {/* Env vars */}
+              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Environment variables (KEY=value, one per line)</span>
+                <textarea value={envVarsText} onChange={(e) => setEnvVarsText(e.target.value)}
+                  rows={3} placeholder={"API_URL=https://example.com\nDEBUG=true"} style={{ ...inputStyle, resize: "vertical", fontFamily: "monospace", fontSize: 13 }} />
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Injected into run_command and custom tool environments</span>
+              </label>
+
+              {/* Custom tools */}
+              <div>
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8 }}>Custom agent tools</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {customTools.map((ct, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 8, padding: 10 }}>
+                      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <input value={ct.name} onChange={(e) => setCustomTools((prev) => prev.map((t, j) => j === i ? { ...t, name: e.target.value } : t))}
+                          placeholder="tool_name" style={{ ...inputStyle, fontSize: 13, padding: "6px 10px" }} />
+                        <input value={ct.description} onChange={(e) => setCustomTools((prev) => prev.map((t, j) => j === i ? { ...t, description: e.target.value } : t))}
+                          placeholder="What this tool does (shown to the AI)" style={{ ...inputStyle, fontSize: 13, padding: "6px 10px" }} />
+                        <input value={ct.command} onChange={(e) => setCustomTools((prev) => prev.map((t, j) => j === i ? { ...t, command: e.target.value } : t))}
+                          placeholder="shell command — use {{repo_path}} and {{input}}" style={{ ...inputStyle, fontSize: 13, padding: "6px 10px", fontFamily: "monospace" }} />
+                      </div>
+                      <button type="button" onClick={() => setCustomTools((prev) => prev.filter((_, j) => j !== i))}
+                        style={{ background: "transparent", border: "none", color: "var(--error)", cursor: "pointer", fontSize: 16, padding: "4px 6px" }}>✕</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setCustomTools((prev) => [...prev, { name: "", description: "", command: "" }])}
+                    style={{ fontSize: 12, padding: "6px 12px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text)", cursor: "pointer", alignSelf: "flex-start" }}>
+                    + Add custom tool
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6 }}>Tools the AI can call during a run. Use {"{{input}}"} for the AI-provided argument.</div>
+              </div>
             </div>
           )}
         </div>
