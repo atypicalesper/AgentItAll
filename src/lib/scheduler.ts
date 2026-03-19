@@ -5,8 +5,7 @@ import { getTasks, getRuns } from "./db";
 import { runAgent } from "./agentExecutor";
 
 let initialized = false;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const jobs = new Map<string, any>();
+const jobs = new Map<string, import("node-cron").ScheduledTask>();
 
 function toCronExpression(schedule: ScheduleType): string | null {
   switch (schedule.kind) {

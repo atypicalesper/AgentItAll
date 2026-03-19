@@ -12,8 +12,7 @@ async function getEtherealTransporter() {
       secure: false,
       auth: { user: testAccount.user, pass: testAccount.pass },
     });
-    console.log(`[emailer] Ethereal account: ${testAccount.user} / ${testAccount.pass}`);
-    console.log(`[emailer] View emails at https://ethereal.email`);
+    console.log(`[emailer] Ethereal account created: ${testAccount.user}`);
   }
   return etherealTransporter;
 }

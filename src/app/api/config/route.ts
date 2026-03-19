@@ -11,9 +11,9 @@ export async function PATCH(req: Request) {
   const updated = {
     ...current,
     ...body,
-    ai: { ...current.ai, ...(body.ai ?? {}) },
+    ai: { ...current.ai, ...(body.ai ?? {}), keys: { ...current.ai.keys, ...(body.ai?.keys ?? {}) } },
     smtp: { ...current.smtp, ...(body.smtp ?? {}) },
   };
   saveConfig(updated);
-  return NextResponse.json(updated);
+  return NextResponse.json({ ok: true });
 }

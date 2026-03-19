@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
@@ -41,24 +41,16 @@ export function getStatus(repoPath: string): string {
 
 export function commitAll(repoPath: string, message: string): string {
   runSafe("git add -A", repoPath);
-  const result = runSafe(`git commit -m "${message.replace(/"/g, '\\"')}"`, repoPath);
-  if (!result) return "";
-  // extract SHA
-  const sha = runSafe("git rev-parse --short HEAD", repoPath);
-  return sha;
+  try {
+    execFileSync("git", ["commit", "-m", message], {
+      cwd: repoPath, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch {
+    return "";
+  }
+  return runSafe("git rev-parse --short HEAD", repoPath);
 }
 
 export function push(repoPath: string): void {
   run("git push", repoPath);
-}
-
-export function stashIfDirty(repoPath: string): boolean {
-  const status = getStatus(repoPath);
-  if (!status) return false;
-  runSafe("git stash", repoPath);
-  return true;
-}
-
-export function stashPop(repoPath: string): void {
-  runSafe("git stash pop", repoPath);
 }

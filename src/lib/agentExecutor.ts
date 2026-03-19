@@ -4,7 +4,7 @@ import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { execSync } from "child_process";
 import type { Task, RunLog, FileEdit } from "./types";
-import { getConfig, upsertRun } from "./db";
+import { getConfig, upsertRun, getRun } from "./db";
 import { getFileTree, readFile, getDiff, commitAll, push } from "./gitOps";
 import { createStream, emit, closeStream } from "./streamStore";
 import { sendEmail } from "./emailer";
@@ -219,18 +219,20 @@ ${repoContexts}`;
     }
     log(runId, `\n[agent] Complete.\n`);
 
-    {
+    upsertRun(run);
+
+    try {
       const body = `# agentItAll Run Complete ✓\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Status:** success\n**Trigger:** ${trigger}\n\n## Summary\n${finalSummary || "(no summary)"}\n\n## Commit\n${run.commitSha ?? "(none)"}\n\n## Stats\n- Files changed: ${run.edits.length}\n- Commands run: ${run.commandsRun.length}`;
       const result = await sendEmail(config.smtp, `[agentItAll] ✓ ${task.name} — success`, body);
       run.emailSent = true;
+      upsertRun(run);
       if (result.etherealUrl) log(runId, `\n[email] Preview: ${result.etherealUrl}\n`);
+    } catch (emailErr) {
+      log(runId, `\n[email] Failed to send: ${String(emailErr)}\n`);
     }
-
-    upsertRun(run);
   } catch (err) {
     // Check if cancelled externally
-    const current = (await import("./db")).getRun(runId);
-    if (current?.status === "cancelled") {
+    if (getRun(runId)?.status === "cancelled") {
       closeStream(runId);
       return;
     }
@@ -241,11 +243,9 @@ ${repoContexts}`;
     upsertRun(run);
     emit(runId, "error", run.error);
 
-    if (config.smtp.enabled || true) { // always try (Ethereal fallback)
-      const provider = (task.provider ?? config.ai.provider) as ProviderKey;
-      const body = `# agentItAll Run FAILED\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Trigger:** ${trigger}\n\n## Error\n${run.error}`;
-      await sendEmail(config.smtp, `[agentItAll] ${task.name} — FAILED`, body).catch(() => {});
-    }
+    const failProvider = (task.provider ?? config.ai.provider) as ProviderKey;
+    const body = `# agentItAll Run FAILED\n\n**Task:** ${task.name}\n**Provider:** ${failProvider}/${task.model}\n**Trigger:** ${trigger}\n\n## Error\n${run.error}`;
+    sendEmail(config.smtp, `[agentItAll] ✗ ${task.name} — failed`, body).catch(() => {});
   } finally {
     closeStream(runId);
   }
@@ -255,7 +255,7 @@ function parseDiffToEdits(diff: string): FileEdit[] {
   const edits: FileEdit[] = [];
   const fileBlocks = diff.split(/^diff --git /m).filter(Boolean);
   for (const block of fileBlocks) {
-    const match = block.match(/^a\/(.+?) b\//);
+    const match = block.match(/^a\/(.+) b\//);
     if (match) edits.push({ path: match[1], diff: "diff --git " + block });
   }
   return edits;
