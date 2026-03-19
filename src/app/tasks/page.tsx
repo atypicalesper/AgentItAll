@@ -16,8 +16,15 @@ const scheduleBadge = (task: Task) => {
   return { label: "", color: "" };
 };
 
+const runStatusColor: Record<string, string> = {
+  success: "var(--success)",
+  failed: "var(--error)",
+  cancelled: "var(--text-muted)",
+};
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [lastRuns, setLastRuns] = useState<Record<string, RunLog>>({});
   const [showForm, setShowForm] = useState(false);
   const [editTask, setEditTask] = useState<Task | undefined>();
   // map taskId → latest runId while running
@@ -26,6 +33,15 @@ export default function TasksPage() {
 
   const load = useCallback(() => {
     fetch("/api/tasks").then((r) => r.json()).then(setTasks);
+    fetch("/api/runs").then((r) => r.json()).then((runs: RunLog[]) => {
+      const map: Record<string, RunLog> = {};
+      for (const run of runs) {
+        if (!map[run.taskId] || run.startedAt > map[run.taskId].startedAt) {
+          map[run.taskId] = run;
+        }
+      }
+      setLastRuns(map);
+    });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -116,6 +132,7 @@ export default function TasksPage() {
           const { label, color } = scheduleBadge(task);
           const runId = activeRuns[task.id];
           const isRunning = !!runId;
+          const lastRun = lastRuns[task.id];
 
           return (
             <div key={task.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", display: "flex", alignItems: "flex-start", gap: 16 }}>
@@ -126,6 +143,11 @@ export default function TasksPage() {
                   </Link>
                   <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--surface2)", color, fontWeight: 600 }}>{label}</span>
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{task.model.split("-").slice(1, 3).join("-")}</span>
+                  {lastRun && !isRunning && (
+                    <Link href={`/runs/${lastRun.id}`} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: "var(--surface2)", color: runStatusColor[lastRun.status] ?? "var(--text-muted)", fontWeight: 600, textDecoration: "none" }}>
+                      {lastRun.status === "success" ? "✓" : lastRun.status === "failed" ? "✗" : "—"} last run
+                    </Link>
+                  )}
                 </div>
                 <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60ch" }}>{task.prompt}</p>
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>

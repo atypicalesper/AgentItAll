@@ -13,6 +13,10 @@ export default function SettingsPage() {
   const [testingEmail, setTestingEmail] = useState(false);
   const [testingAI, setTestingAI] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [visibleKeys, setVisibleKeys] = useState<Set<ProviderKey>>(new Set());
+
+  const toggleKeyVisibility = (p: ProviderKey) =>
+    setVisibleKeys((prev) => { const next = new Set(prev); next.has(p) ? next.delete(p) : next.add(p); return next; });
 
   useEffect(() => {
     fetch("/api/config").then((r) => r.json()).then(setConfig);
@@ -129,8 +133,14 @@ export default function SettingsPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {PROVIDER_KEYS.map((p) => (
             <Field key={p} label={PROVIDERS[p].keyLabel}>
-              <input type="password" value={config.ai.keys[p] ?? ""} onChange={(e) => setKey(p, e.target.value)}
-                placeholder={PROVIDERS[p].keyPlaceholder} style={{ ...inputStyle, borderColor: activeProvider === p ? "var(--accent)" : "var(--border)" }} />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input type={visibleKeys.has(p) ? "text" : "password"} value={config.ai.keys[p] ?? ""} onChange={(e) => setKey(p, e.target.value)}
+                  placeholder={PROVIDERS[p].keyPlaceholder} style={{ ...inputStyle, borderColor: activeProvider === p ? "var(--accent)" : "var(--border)", flex: 1 }} />
+                <button type="button" onClick={() => toggleKeyVisibility(p)} title={visibleKeys.has(p) ? "Hide key" : "Show key"}
+                  style={{ ...secondaryBtn, padding: "0 12px", fontSize: 15, flexShrink: 0 }}>
+                  {visibleKeys.has(p) ? "🙈" : "👁"}
+                </button>
+              </div>
             </Field>
           ))}
         </div>

@@ -10,6 +10,24 @@ interface Repo { name: string; path: string; branch: string }
 const defaultPermissions: TaskPermissions = { runCommands: false, commit: false, push: false };
 const defaultSchedule: ScheduleType = { kind: "manual" };
 
+const SCHEDULE_PRESETS: { label: string; s: ScheduleType }[] = [
+  { label: "Manual", s: { kind: "manual" } },
+  { label: "Hourly", s: { kind: "hourly" } },
+  { label: "6 am daily", s: { kind: "daily", hour: 6, minute: 0 } },
+  { label: "9 am daily", s: { kind: "daily", hour: 9, minute: 0 } },
+  { label: "12 pm daily", s: { kind: "daily", hour: 12, minute: 0 } },
+  { label: "6 pm daily", s: { kind: "daily", hour: 18, minute: 0 } },
+  { label: "Mon 9 am", s: { kind: "weekly", dayOfWeek: 1, hour: 9, minute: 0 } },
+  { label: "Fri 6 pm", s: { kind: "weekly", dayOfWeek: 5, hour: 18, minute: 0 } },
+  { label: "1st of month", s: { kind: "monthly", dayOfMonth: 1, hour: 9, minute: 0 } },
+];
+
+const LAST_SCHEDULE_KEY = "agentItAll:lastSchedule";
+
+function scheduleMatches(a: ScheduleType, b: ScheduleType): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 interface Props {
   task?: Task;
   onSave: (data: Partial<Task>) => void;
@@ -22,7 +40,11 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [selectedRepos, setSelectedRepos] = useState<string[]>(task?.repos ?? []);
   const [permissions, setPermissions] = useState<TaskPermissions>(task?.permissions ?? defaultPermissions);
-  const [schedule, setSchedule] = useState<ScheduleType>(task?.schedule ?? defaultSchedule);
+  const [schedule, setSchedule] = useState<ScheduleType>(() => {
+    if (task?.schedule) return task.schedule;
+    try { return JSON.parse(localStorage.getItem(LAST_SCHEDULE_KEY) ?? "null") ?? defaultSchedule; }
+    catch { return defaultSchedule; }
+  });
   const [provider, setProvider] = useState<ProviderKey>(task?.provider ?? "groq");
   const [model, setModel] = useState(task?.model ?? PROVIDERS["groq"].models[0]);
   const [enabled, setEnabled] = useState(task?.enabled ?? true);
@@ -112,36 +134,17 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
         {/* Schedule */}
         <div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Schedule</div>
-          <select value={schedule.kind} onChange={(e) => setSchedule({ kind: e.target.value as ScheduleType["kind"], hour: 9, minute: 0, dayOfWeek: 1, dayOfMonth: 1 } as ScheduleType)} style={inputStyle}>
-            <option value="manual">Manual only</option>
-            <option value="hourly">Every hour</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-          </select>
-
-          {schedule.kind === "daily" && (
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input type="number" min={0} max={23} value={(schedule as { kind: "daily"; hour: number }).hour} onChange={(e) => setSchedule({ ...schedule, hour: +e.target.value } as ScheduleType)} placeholder="Hour (0-23)" style={{ ...inputStyle, flex: 1 }} />
-              <input type="number" min={0} max={59} value={(schedule as { kind: "daily"; minute: number }).minute} onChange={(e) => setSchedule({ ...schedule, minute: +e.target.value } as ScheduleType)} placeholder="Minute" style={{ ...inputStyle, flex: 1 }} />
-            </div>
-          )}
-          {schedule.kind === "weekly" && (
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <select value={(schedule as { kind: "weekly"; dayOfWeek: number }).dayOfWeek} onChange={(e) => setSchedule({ ...schedule, dayOfWeek: +e.target.value } as ScheduleType)} style={{ ...inputStyle, flex: 1 }}>
-                {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d, i) => <option key={i} value={i}>{d}</option>)}
-              </select>
-              <input type="number" min={0} max={23} placeholder="Hour" value={(schedule as { kind: "weekly"; hour: number }).hour} onChange={(e) => setSchedule({ ...schedule, hour: +e.target.value } as ScheduleType)} style={{ ...inputStyle, flex: 1 }} />
-              <input type="number" min={0} max={59} placeholder="Minute" value={(schedule as { kind: "weekly"; minute: number }).minute} onChange={(e) => setSchedule({ ...schedule, minute: +e.target.value } as ScheduleType)} style={{ ...inputStyle, flex: 1 }} />
-            </div>
-          )}
-          {schedule.kind === "monthly" && (
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input type="number" min={1} max={28} placeholder="Day of month" value={(schedule as { kind: "monthly"; dayOfMonth: number }).dayOfMonth} onChange={(e) => setSchedule({ ...schedule, dayOfMonth: +e.target.value } as ScheduleType)} style={{ ...inputStyle, flex: 1 }} />
-              <input type="number" min={0} max={23} placeholder="Hour" value={(schedule as { kind: "monthly"; hour: number }).hour} onChange={(e) => setSchedule({ ...schedule, hour: +e.target.value } as ScheduleType)} style={{ ...inputStyle, flex: 1 }} />
-              <input type="number" min={0} max={59} placeholder="Minute" value={(schedule as { kind: "monthly"; minute: number }).minute} onChange={(e) => setSchedule({ ...schedule, minute: +e.target.value } as ScheduleType)} style={{ ...inputStyle, flex: 1 }} />
-            </div>
-          )}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SCHEDULE_PRESETS.map(({ label, s }) => {
+              const active = scheduleMatches(schedule, s);
+              return (
+                <button key={label} type="button" onClick={() => { setSchedule(s); localStorage.setItem(LAST_SCHEDULE_KEY, JSON.stringify(s)); }}
+                  style={{ fontSize: 12, padding: "5px 12px", borderRadius: 20, border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`, background: active ? "rgba(124,110,247,0.15)" : "var(--surface2)", color: active ? "var(--accent)" : "var(--text)", cursor: "pointer", fontWeight: active ? 600 : 400 }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Provider & Model */}

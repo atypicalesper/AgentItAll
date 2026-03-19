@@ -219,10 +219,11 @@ ${repoContexts}`;
     }
     log(runId, `\n[agent] Complete.\n`);
 
-    if (config.smtp.enabled) {
-      const body = `# agentItAll Run Complete\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Status:** success\n**Trigger:** ${trigger}\n\n## Summary\n${finalSummary || "(no summary)"}\n\n## Commit\n${run.commitSha ?? "(none)"}`;
-      await sendEmail(config.smtp, `[agentItAll] ${task.name} — success`, body);
+    {
+      const body = `# agentItAll Run Complete ✓\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Status:** success\n**Trigger:** ${trigger}\n\n## Summary\n${finalSummary || "(no summary)"}\n\n## Commit\n${run.commitSha ?? "(none)"}\n\n## Stats\n- Files changed: ${run.edits.length}\n- Commands run: ${run.commandsRun.length}`;
+      const result = await sendEmail(config.smtp, `[agentItAll] ✓ ${task.name} — success`, body);
       run.emailSent = true;
+      if (result.etherealUrl) log(runId, `\n[email] Preview: ${result.etherealUrl}\n`);
     }
 
     upsertRun(run);
@@ -239,6 +240,12 @@ ${repoContexts}`;
     run.output += `\n[error] ${run.error}`;
     upsertRun(run);
     emit(runId, "error", run.error);
+
+    if (config.smtp.enabled || true) { // always try (Ethereal fallback)
+      const provider = (task.provider ?? config.ai.provider) as ProviderKey;
+      const body = `# agentItAll Run FAILED\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Trigger:** ${trigger}\n\n## Error\n${run.error}`;
+      await sendEmail(config.smtp, `[agentItAll] ${task.name} — FAILED`, body).catch(() => {});
+    }
   } finally {
     closeStream(runId);
   }
