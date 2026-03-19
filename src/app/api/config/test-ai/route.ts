@@ -1,21 +1,19 @@
 import { NextResponse } from "next/server";
 import { getConfig } from "@/lib/db";
-import Anthropic from "@anthropic-ai/sdk";
+import { getModel } from "@/lib/providers";
+import { generateText } from "ai";
 
 export async function POST() {
   const config = getConfig();
-  if (!config.ai.apiKey) {
-    return NextResponse.json({ ok: false, error: "No API key configured." });
+  const { provider, model, keys } = config.ai;
+  const apiKey = keys[provider];
+  if (!apiKey) {
+    return NextResponse.json({ ok: false, error: `No API key configured for ${provider}.` });
   }
   try {
-    const client = new Anthropic({ apiKey: config.ai.apiKey });
-    const msg = await client.messages.create({
-      model: config.ai.model,
-      max_tokens: 16,
-      messages: [{ role: "user", content: "ping" }],
-    });
-    const reply = msg.content.find((b) => b.type === "text")?.text ?? "ok";
-    return NextResponse.json({ ok: true, reply });
+    const llm = getModel(provider, model, apiKey);
+    const { text } = await generateText({ model: llm, prompt: "ping" });
+    return NextResponse.json({ ok: true, reply: text });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) });
   }

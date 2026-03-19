@@ -1,3 +1,5 @@
+import type { ProviderKey } from "./providers";
+
 // ── Schedule ─────────────────────────────────────────────────────────────────
 
 export type ScheduleType =
@@ -19,10 +21,10 @@ export interface Task {
   id: string;
   name: string;
   prompt: string;
-  repos: string[]; // absolute paths
+  repos: string[];
   permissions: TaskPermissions;
   schedule: ScheduleType;
-  provider: "anthropic";
+  provider: ProviderKey;
   model: string;
   enabled: boolean;
   createdAt: string;
@@ -34,8 +36,8 @@ export interface Task {
 export type RunStatus = "running" | "success" | "failed" | "cancelled";
 
 export interface FileEdit {
-  path: string; // repo-relative
-  diff: string; // unified diff
+  path: string;
+  diff: string;
 }
 
 export interface RunLog {
@@ -59,9 +61,14 @@ export interface RunLog {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 export interface AIProviderConfig {
-  provider: "anthropic";
-  apiKey: string;
+  provider: ProviderKey;
   model: string;
+  keys: {
+    anthropic: string;
+    groq: string;
+    google: string;
+    openai: string;
+  };
 }
 
 export interface SMTPConfig {
@@ -76,6 +83,7 @@ export interface SMTPConfig {
 
 export interface AppConfig {
   baseDir: string;
+  theme: "dark" | "light";
   ai: AIProviderConfig;
   smtp: SMTPConfig;
   updatedAt: string;

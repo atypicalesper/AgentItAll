@@ -75,7 +75,12 @@ export function upsertRun(run: RunLog): void {
 
 const defaultConfig: AppConfig = {
   baseDir: `${process.env.HOME}/Desktop/pp`,
-  ai: { provider: "anthropic", apiKey: "", model: "claude-haiku-4-5-20251001" },
+  theme: "dark",
+  ai: {
+    provider: "groq",
+    model: "llama-3.3-70b-versatile",
+    keys: { anthropic: "", groq: "", google: "", openai: "" },
+  },
   smtp: {
     host: "smtp.gmail.com",
     port: 465,

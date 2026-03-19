@@ -2,14 +2,10 @@
 
 import { useState, useEffect } from "react";
 import type { Task, TaskPermissions, ScheduleType } from "@/lib/types";
+import { PROVIDERS } from "@/lib/providers";
+import type { ProviderKey } from "@/lib/providers";
 
 interface Repo { name: string; path: string; branch: string }
-
-const MODELS = [
-  "claude-haiku-4-5-20251001",
-  "claude-sonnet-4-6",
-  "claude-opus-4-6",
-];
 
 const defaultPermissions: TaskPermissions = { runCommands: false, commit: false, push: false };
 const defaultSchedule: ScheduleType = { kind: "manual" };
@@ -27,8 +23,14 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
   const [selectedRepos, setSelectedRepos] = useState<string[]>(task?.repos ?? []);
   const [permissions, setPermissions] = useState<TaskPermissions>(task?.permissions ?? defaultPermissions);
   const [schedule, setSchedule] = useState<ScheduleType>(task?.schedule ?? defaultSchedule);
-  const [model, setModel] = useState(task?.model ?? MODELS[0]);
+  const [provider, setProvider] = useState<ProviderKey>(task?.provider ?? "groq");
+  const [model, setModel] = useState(task?.model ?? PROVIDERS["groq"].models[0]);
   const [enabled, setEnabled] = useState(task?.enabled ?? true);
+
+  const handleProviderChange = (p: ProviderKey) => {
+    setProvider(p);
+    setModel(PROVIDERS[p].models[0]);
+  };
 
   useEffect(() => {
     fetch("/api/repos").then((r) => r.json()).then(setRepos);
@@ -60,7 +62,7 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
       return;
     }
     setFormError(null);
-    onSave({ name, prompt, repos: selectedRepos, permissions, schedule, model, enabled, provider: "anthropic" });
+    onSave({ name, prompt, repos: selectedRepos, permissions, schedule, model, enabled, provider });
   };
 
   return (
@@ -142,13 +144,18 @@ export default function TaskForm({ task, onSave, onCancel }: Props) {
           )}
         </div>
 
-        {/* Model */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Model</span>
-          <select value={model} onChange={(e) => setModel(e.target.value)} style={inputStyle}>
-            {MODELS.map((m) => <option key={m} value={m}>{m}</option>)}
+        {/* Provider & Model */}
+        <div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Provider &amp; Model</div>
+          <select value={provider} onChange={(e) => handleProviderChange(e.target.value as ProviderKey)} style={inputStyle}>
+            {(Object.keys(PROVIDERS) as ProviderKey[]).map((p) => (
+              <option key={p} value={p}>{PROVIDERS[p].label}</option>
+            ))}
           </select>
-        </label>
+          <select value={model} onChange={(e) => setModel(e.target.value)} style={{ ...inputStyle, marginTop: 8 }}>
+            {PROVIDERS[provider].models.map((m: string) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
 
         {/* Enabled */}
         <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>

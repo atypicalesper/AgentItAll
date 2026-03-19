@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { streamText, tool, stepCountIs } from "ai";
+import { z } from "zod";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { execSync } from "child_process";
@@ -7,8 +8,10 @@ import { getConfig, upsertRun } from "./db";
 import { getFileTree, readFile, getDiff, commitAll, push } from "./gitOps";
 import { createStream, emit, closeStream } from "./streamStore";
 import { sendEmail } from "./emailer";
+import { getModel, PROVIDERS } from "./providers";
+import type { ProviderKey } from "./providers";
 
-const MAX_ITERATIONS = 20;
+const MAX_STEPS = 20;
 
 function log(runId: string, msg: string) {
   emit(runId, "chunk", msg);
@@ -50,225 +53,154 @@ export async function runAgent(
 
   const appendOutput = (text: string) => {
     run.output += text;
-    upsertRun(run);
   };
 
   try {
-    if (!config.ai.apiKey) throw new Error("No API key configured. Go to Settings and add your Anthropic API key.");
+    // ── Pre-flight checks ──────────────────────────────────────────────────
+    const provider = (task.provider ?? config.ai.provider) as ProviderKey;
+    const apiKey = config.ai.keys[provider];
 
-    // ── Pre-flight: verify repos exist ───────────────────────────────────────
+    if (!apiKey) {
+      throw new Error(
+        `No API key for ${PROVIDERS[provider].label}. Go to Settings → AI Provider and add your ${provider} key.`
+      );
+    }
+
     for (const repoPath of task.repos) {
       if (!existsSync(repoPath)) {
         throw new Error(`Repo not found: ${repoPath}. Update the task with a valid path.`);
       }
     }
 
-    const client = new Anthropic({ apiKey: config.ai.apiKey });
+    const model = getModel(provider, task.model || config.ai.model, apiKey);
 
-    // ── Build context from repos ─────────────────────────────────────────────
+    // ── Build repo context ─────────────────────────────────────────────────
     const repoContexts = task.repos.map((repoPath) => {
       const files = getFileTree(repoPath);
       const status = runCmd(repoPath, "git status --short");
-      const recentLog = runCmd(repoPath, 'git log --oneline -10');
-      return `## Repo: ${repoPath}\n\nFiles (git ls-files):\n${files}\n\nRecent commits:\n${recentLog}\n\nUncommitted changes:\n${status || "(clean)"}`;
+      const recentLog = runCmd(repoPath, "git log --oneline -10");
+      return `## Repo: ${repoPath}\n\nFiles:\n${files}\n\nRecent commits:\n${recentLog}\n\nUncommitted changes:\n${status || "(clean)"}`;
     }).join("\n\n---\n\n");
 
-    const systemPrompt = `You are an autonomous coding agent. You have been given a task to perform on one or more git repositories.
+    const systemPrompt = `You are an autonomous coding agent working on one or more git repositories.
 
-You have access to the following tools:
-- read_file: Read a file from a repo
-- write_file: Write/overwrite a file in a repo
-- run_command: Run a shell command in a repo (only if permitted)
-- commit: Commit all changes in a repo
-- task_complete: Signal that you are done and provide a summary
+Available tools: read_file, write_file, run_command (if permitted), commit (if permitted), task_complete.
 
 Rules:
-- Always read files before editing them
+- Read files before editing them
 - Make targeted, minimal changes
-- Write clear commit messages
-- If a tool is unavailable (e.g. commit/push not permitted), work around it
-- Call task_complete when done
+- Call task_complete when done with a clear summary
 
 Repository context:
 ${repoContexts}`;
 
-    const tools: Anthropic.Tool[] = [
-      {
-        name: "read_file",
-        description: "Read a file from a repository",
-        input_schema: {
-          type: "object" as const,
-          properties: {
-            repo_path: { type: "string", description: "Absolute path to the repo" },
-            file_path: { type: "string", description: "Relative file path within the repo" },
-          },
-          required: ["repo_path", "file_path"],
-        },
-      },
-      {
-        name: "write_file",
-        description: "Write content to a file in a repository",
-        input_schema: {
-          type: "object" as const,
-          properties: {
-            repo_path: { type: "string", description: "Absolute path to the repo" },
-            file_path: { type: "string", description: "Relative file path within the repo" },
-            content: { type: "string", description: "Full file content to write" },
-          },
-          required: ["repo_path", "file_path", "content"],
-        },
-      },
-      {
-        name: "run_command",
-        description: "Run a shell command in a repository directory",
-        input_schema: {
-          type: "object" as const,
-          properties: {
-            repo_path: { type: "string", description: "Absolute path to the repo" },
-            command: { type: "string", description: "Shell command to run" },
-          },
-          required: ["repo_path", "command"],
-        },
-      },
-      {
-        name: "commit",
-        description: "Commit all staged and unstaged changes in a repo",
-        input_schema: {
-          type: "object" as const,
-          properties: {
-            repo_path: { type: "string", description: "Absolute path to the repo" },
-            message: { type: "string", description: "Commit message" },
-          },
-          required: ["repo_path", "message"],
-        },
-      },
-      {
-        name: "task_complete",
-        description: "Signal that the task is complete and provide a summary",
-        input_schema: {
-          type: "object" as const,
-          properties: {
-            summary: { type: "string", description: "Summary of what was done" },
-          },
-          required: ["summary"],
-        },
-      },
-    ];
+    log(runId, `\n[agent] Starting: ${task.name} (${provider}/${task.model})\n\n`);
 
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: task.prompt },
-    ];
-
-    log(runId, `\n[agent] Starting task: ${task.name}\n`);
-
-    let iterations = 0;
-    let done = false;
+    // ── Tool definitions ───────────────────────────────────────────────────
+    const pendingWrites = new Map<string, string>();
     let finalSummary = "";
-    const pendingWrites = new Map<string, string>(); // "repo_path::file_path" → content
 
-    while (!done && iterations < MAX_ITERATIONS) {
-      iterations++;
-      log(runId, `\n[agent] Iteration ${iterations}/${MAX_ITERATIONS}\n`);
+    const tools = {
+      read_file: tool({
+        description: "Read a file from a repository",
+        inputSchema: z.object({
+          repo_path: z.string().describe("Absolute path to the repo"),
+          file_path: z.string().describe("Relative file path within the repo"),
+        }),
+        execute: async (input) => {
+          log(runId, `[tool] read_file: ${input.file_path}\n`);
+          return readFile(input.repo_path, input.file_path);
+        },
+      }),
 
-      const response = await client.messages.create({
-        model: task.model || config.ai.model,
-        max_tokens: 4096,
-        system: systemPrompt,
-        tools,
-        messages,
-      });
-
-      // Stream any text blocks
-      for (const block of response.content) {
-        if (block.type === "text") {
-          log(runId, block.text);
-          appendOutput(block.text);
-        }
-      }
-
-      // Process tool calls
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
-      for (const block of response.content) {
-        if (block.type !== "tool_use") continue;
-
-        const input = block.input as Record<string, string>;
-        let result = "";
-
-        if (block.name === "read_file") {
-          const { repo_path, file_path } = input;
-          log(runId, `\n[tool] read_file: ${file_path}\n`);
-          result = readFile(repo_path, file_path);
-
-        } else if (block.name === "write_file") {
-          const { repo_path, file_path, content } = input;
-          log(runId, `\n[tool] write_file: ${file_path}\n`);
-          const key = `${repo_path}::${file_path}`;
-          pendingWrites.set(key, content);
-          // write immediately so run_command can use updated files
-          const fullPath = join(repo_path, file_path);
+      write_file: tool({
+        description: "Write content to a file in a repository",
+        inputSchema: z.object({
+          repo_path: z.string(),
+          file_path: z.string(),
+          content: z.string().describe("Full file content to write"),
+        }),
+        execute: async (input) => {
+          log(runId, `[tool] write_file: ${input.file_path}\n`);
+          const fullPath = join(input.repo_path, input.file_path);
           const dir = dirname(fullPath);
           if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-          writeFileSync(fullPath, content, "utf8");
-          result = `Written: ${file_path}`;
+          writeFileSync(fullPath, input.content, "utf8");
+          pendingWrites.set(`${input.repo_path}::${input.file_path}`, input.content);
+          return `Written: ${input.file_path}`;
+        },
+      }),
 
-        } else if (block.name === "run_command") {
-          const { repo_path, command } = input;
+      run_command: tool({
+        description: "Run a shell command in a repository directory",
+        inputSchema: z.object({
+          repo_path: z.string(),
+          command: z.string(),
+        }),
+        execute: async (input) => {
           if (!task.permissions.runCommands) {
-            result = "(permission denied: runCommands is disabled for this task)";
-          } else {
-            log(runId, `\n[tool] run_command: ${command}\n`);
-            run.commandsRun.push(command);
-            result = runCmd(repo_path, command);
-            log(runId, result + "\n");
+            return "(permission denied: runCommands is disabled for this task)";
           }
+          log(runId, `[tool] run_command: ${input.command}\n`);
+          run.commandsRun.push(input.command);
+          const result = runCmd(input.repo_path, input.command);
+          log(runId, result + "\n");
+          return result;
+        },
+      }),
 
-        } else if (block.name === "commit") {
-          const { repo_path, message } = input;
+      commit: tool({
+        description: "Commit all changes in a repository",
+        inputSchema: z.object({
+          repo_path: z.string(),
+          message: z.string().describe("Commit message"),
+        }),
+        execute: async (input) => {
           if (!task.permissions.commit) {
-            result = "(permission denied: commit is disabled for this task)";
-          } else {
-            log(runId, `\n[tool] commit: ${message}\n`);
-            const diff = getDiff(repo_path);
-            const sha = commitAll(repo_path, message);
-            run.commitSha = sha;
-            if (diff) {
-              const edits = parseDiffToEdits(diff);
-              run.edits.push(...edits);
-            }
-            result = sha ? `Committed: ${sha}` : "(nothing to commit)";
+            return "(permission denied: commit is disabled for this task)";
           }
+          log(runId, `[tool] commit: ${input.message}\n`);
+          const diff = getDiff(input.repo_path);
+          const sha = commitAll(input.repo_path, input.message);
+          if (sha) run.commitSha = sha;
+          if (diff) run.edits.push(...parseDiffToEdits(diff));
+          return sha ? `Committed: ${sha}` : "(nothing to commit)";
+        },
+      }),
 
-        } else if (block.name === "task_complete") {
+      task_complete: tool({
+        description: "Signal that the task is complete",
+        inputSchema: z.object({
+          summary: z.string().describe("What was done"),
+        }),
+        execute: async (input) => {
           finalSummary = input.summary;
-          done = true;
-          result = "Task marked complete.";
-        }
+          return "Done.";
+        },
+      }),
+    };
 
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result,
-        });
-      }
+    // ── Run the agent ──────────────────────────────────────────────────────
+    const result = streamText({
+      model,
+      tools,
+      stopWhen: stepCountIs(MAX_STEPS),
+      system: systemPrompt,
+      messages: [{ role: "user", content: task.prompt }],
+    });
 
-      if (response.stop_reason === "end_turn" && !done) {
-        done = true;
-      }
-
-      if (!done && toolResults.length > 0) {
-        messages.push({ role: "assistant", content: response.content });
-        messages.push({ role: "user", content: toolResults });
-      }
+    for await (const chunk of result.textStream) {
+      log(runId, chunk);
+      appendOutput(chunk);
+      upsertRun(run);
     }
 
-    // collect diffs for any uncommitted writes
+    // Collect diffs for uncommitted writes
     for (const repoPath of task.repos) {
       const diff = getDiff(repoPath);
       if (diff && !run.commitSha) {
         run.edits.push(...parseDiffToEdits(diff));
       }
-      // push if permitted and committed
       if (task.permissions.push && run.commitSha) {
         try {
           push(repoPath);
@@ -282,22 +214,29 @@ ${repoContexts}`;
 
     run.status = "success";
     run.finishedAt = new Date().toISOString();
-    appendOutput(`\n\n✓ Done: ${finalSummary}`);
+    if (finalSummary) {
+      appendOutput(`\n\n✓ Done: ${finalSummary}`);
+    }
     log(runId, `\n[agent] Complete.\n`);
 
-    // send email digest
     if (config.smtp.enabled) {
-      const body = `# agentItAll Run Complete\n\n**Task:** ${task.name}\n**Status:** ${run.status}\n**Trigger:** ${trigger}\n\n## Summary\n${finalSummary}\n\n## Commands Run\n${run.commandsRun.join("\n") || "(none)"}\n\n## Commit\n${run.commitSha ?? "(none)"}`;
-      await sendEmail(config.smtp, `[agentItAll] ${task.name} — ${run.status}`, body);
+      const body = `# agentItAll Run Complete\n\n**Task:** ${task.name}\n**Provider:** ${provider}/${task.model}\n**Status:** success\n**Trigger:** ${trigger}\n\n## Summary\n${finalSummary || "(no summary)"}\n\n## Commit\n${run.commitSha ?? "(none)"}`;
+      await sendEmail(config.smtp, `[agentItAll] ${task.name} — success`, body);
       run.emailSent = true;
     }
 
     upsertRun(run);
   } catch (err) {
+    // Check if cancelled externally
+    const current = (await import("./db")).getRun(runId);
+    if (current?.status === "cancelled") {
+      closeStream(runId);
+      return;
+    }
     run.status = "failed";
     run.finishedAt = new Date().toISOString();
     run.error = String(err);
-    appendOutput(`\n[error] ${run.error}`);
+    run.output += `\n[error] ${run.error}`;
     upsertRun(run);
     emit(runId, "error", run.error);
   } finally {
@@ -310,9 +249,7 @@ function parseDiffToEdits(diff: string): FileEdit[] {
   const fileBlocks = diff.split(/^diff --git /m).filter(Boolean);
   for (const block of fileBlocks) {
     const match = block.match(/^a\/(.+?) b\//);
-    if (match) {
-      edits.push({ path: match[1], diff: "diff --git " + block });
-    }
+    if (match) edits.push({ path: match[1], diff: "diff --git " + block });
   }
   return edits;
 }
