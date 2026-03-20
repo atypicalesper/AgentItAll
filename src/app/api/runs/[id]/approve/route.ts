@@ -47,7 +47,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (run.branchName) pushBranch(repoPath, run.branchName);
         else push(repoPath);
         pushed = true;
-      } catch { /* non-fatal — push errors logged but don't block approval */ }
+      } catch (err) {
+        console.error(`[approve] push failed for ${repoPath}:`, err);
+      }
     }
   }
 

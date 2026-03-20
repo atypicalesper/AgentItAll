@@ -13,6 +13,7 @@ export async function PATCH(req: Request) {
     ...body,
     ai: { ...current.ai, ...(body.ai ?? {}), keys: { ...current.ai.keys, ...(body.ai?.keys ?? {}) } },
     smtp: { ...current.smtp, ...(body.smtp ?? {}) },
+    digest: { ...current.digest, ...(body.digest ?? {}) },
   };
   saveConfig(updated);
   return NextResponse.json({ ok: true });

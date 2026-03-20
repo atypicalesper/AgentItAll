@@ -33,14 +33,14 @@ export default function TaskDetailPage() {
   }, [id, router]);
 
   useEffect(() => {
-    fetch(`/api/runs?taskId=${id}`).then((r) => r.json()).then(setRuns);
+    fetch(`/api/runs?taskId=${id}`).then((r) => r.json()).then((d) => setRuns(d.runs ?? []));
   }, [id]);
 
   // Only poll while a run is active
   useEffect(() => {
     if (!runs.some((r) => r.status === "running")) return;
     const interval = setInterval(() => {
-      fetch(`/api/runs?taskId=${id}`).then((r) => r.json()).then(setRuns);
+      fetch(`/api/runs?taskId=${id}`).then((r) => r.json()).then((d) => setRuns(d.runs ?? []));
     }, 3000);
     return () => clearInterval(interval);
   }, [id, runs]);

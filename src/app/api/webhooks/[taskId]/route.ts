@@ -7,12 +7,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ taskId:
   const { taskId } = await params;
   const config = getConfig();
 
-  if (config.webhookSecret) {
-    const auth = req.headers.get("authorization") ?? "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (token !== config.webhookSecret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!config.webhookSecret) {
+    return NextResponse.json({ error: "Webhook secret not configured" }, { status: 403 });
+  }
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (token !== config.webhookSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const task = getTask(taskId);

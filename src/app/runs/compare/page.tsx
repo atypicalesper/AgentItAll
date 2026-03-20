@@ -28,12 +28,23 @@ function CompareContent() {
   const bId = params.get("b") ?? "";
   const [a, setA] = useState<RunLog | null>(null);
   const [b, setB] = useState<RunLog | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (aId) fetch(`/api/runs/${aId}`).then((r) => r.json()).then(setA);
-    if (bId) fetch(`/api/runs/${bId}`).then((r) => r.json()).then(setB);
+    if (!aId || !bId) { setError("Two run IDs are required for comparison."); return; }
+    Promise.all([
+      fetch(`/api/runs/${aId}`).then((r) => r.ok ? r.json() : Promise.reject("Run A not found")),
+      fetch(`/api/runs/${bId}`).then((r) => r.ok ? r.json() : Promise.reject("Run B not found")),
+    ]).then(([ra, rb]) => { setA(ra); setB(rb); })
+      .catch((e) => setError(typeof e === "string" ? e : "Failed to load runs."));
   }, [aId, bId]);
 
+  if (error) return (
+    <div>
+      <div style={{ marginBottom: 24 }}><Link href="/runs" style={{ fontSize: 13, color: "var(--text-muted)", textDecoration: "none" }}>← Run History</Link></div>
+      <div style={{ color: "var(--error)", fontSize: 14 }}>{error}</div>
+    </div>
+  );
   if (!a || !b) return <div style={{ color: "var(--text-muted)" }}>Loading…</div>;
 
   const aFiles = new Set(a.edits.map((e) => e.path));
