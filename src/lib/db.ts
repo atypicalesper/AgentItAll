@@ -224,7 +224,17 @@ export function getConfig(): AppConfig {
     ...defaultConfig,
     ...raw,
     ai: ai as unknown as AppConfig["ai"],
-    smtp: { ...defaultConfig.smtp, ...(raw.smtp as object ?? {}) },
+    smtp: {
+      ...defaultConfig.smtp,
+      ...(raw.smtp as object ?? {}),
+      // env vars always win for credentials — DB may have stale values
+      ...(process.env.SMTP_HOST  ? { host:      process.env.SMTP_HOST }         : {}),
+      ...(process.env.SMTP_PORT  ? { port:      Number(process.env.SMTP_PORT) } : {}),
+      ...(process.env.SMTP_USER  ? { user:      process.env.SMTP_USER, enabled: true } : {}),
+      ...(process.env.SMTP_PASS  ? { pass:      process.env.SMTP_PASS }         : {}),
+      ...(process.env.SMTP_TO    ? { toAddress: process.env.SMTP_TO }           : {}),
+      secure: process.env.SMTP_SECURE === "true",
+    },
   };
 }
 

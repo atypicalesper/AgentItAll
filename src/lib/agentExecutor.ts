@@ -17,6 +17,7 @@ import { parseDiff } from "./diffParser";
 import { estimateCost, budgetToMaxTokens } from "./costEstimator";
 import { notifySuccess, notifyFailure } from "./notifier";
 import type { ProviderKey } from "./providers";
+import { error } from "./logger";
 
 const MAX_STEPS = 20;
 
@@ -464,7 +465,7 @@ ${repoContexts}`;
             run.chainedRunIds.push(chainRunId);
             log(runId, `\n[chain] Triggering task: ${chained.name} (runId: ${chainRunId})\n`);
             runAgent(chained, chainRunId, "scheduled").catch((err) =>
-              console.error(`[chain] Task ${chained.name} (${chainRunId}) failed:`, err)
+              error("chain", `Task ${chained.name} (${chainRunId}) failed`, err)
             );
           }
         }

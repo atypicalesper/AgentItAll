@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getRun, getTask, upsertRun } from "@/lib/db";
+import { error as logError } from "@/lib/logger";
 import { commitAll, push, pushBranch, discardChanges, getDiff } from "@/lib/gitOps";
 import { parseDiff } from "@/lib/diffParser";
 
@@ -48,7 +49,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         else push(repoPath);
         pushed = true;
       } catch (err) {
-        console.error(`[approve] push failed for ${repoPath}:`, err);
+        logError("approve", `push failed for ${repoPath}`, err);
       }
     }
   }

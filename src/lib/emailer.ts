@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import type { SMTPConfig } from "./types";
+import { log, error as logError } from "./logger";
 
 let etherealTransporter: nodemailer.Transporter | null = null;
 
@@ -12,7 +13,7 @@ async function getEtherealTransporter() {
       secure: false,
       auth: { user: testAccount.user, pass: testAccount.pass },
     });
-    console.log(`[emailer] Ethereal account created: ${testAccount.user}`);
+    log("emailer", `Ethereal account created: ${testAccount.user}`);
   }
   return etherealTransporter;
 }
@@ -71,7 +72,7 @@ export async function sendEmail(
       html,
     });
     const url = nodemailer.getTestMessageUrl(info) as string;
-    console.log(`[emailer] Ethereal preview URL: ${url}`);
+    log("emailer", `Ethereal preview URL: ${url}`);
     return { etherealUrl: url };
   }
 
@@ -82,14 +83,18 @@ export async function sendEmail(
     auth: { user: smtp.user, pass: smtp.pass },
   });
 
-  await transporter.sendMail({
-    from: `"agentItAll" <${smtp.user}>`,
-    to: smtp.toAddress,
-    subject,
-    text: body,
-    html,
-  });
-
-  console.log(`[emailer] Email sent to ${smtp.toAddress}`);
+  try {
+    await transporter.sendMail({
+      from: `"agentItAll" <${smtp.user}>`,
+      to: smtp.toAddress,
+      subject,
+      text: body,
+      html,
+    });
+    log("emailer", `Email sent to ${smtp.toAddress}`);
+  } catch (err) {
+    logError("emailer", `Failed to send email to ${smtp.toAddress}`, err);
+    throw err;
+  }
   return {};
 }

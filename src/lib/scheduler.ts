@@ -4,6 +4,7 @@ import type { Task, ScheduleType } from "./types";
 import { getTasks, getRuns, getConfig } from "./db";
 import { runAgent } from "./agentExecutor";
 import { sendDailyDigest } from "./digest";
+import { log, warn, error } from "./logger";
 
 let initialized = false;
 const jobs = new Map<string, import("node-cron").ScheduledTask>();
@@ -38,22 +39,22 @@ function registerTask(task: Task) {
   try {
     job = cron.schedule(expr, async () => {
       if (isAlreadyRunning(task.id)) {
-        console.log(`[scheduler] Task ${task.name} already running, skipping.`);
+        warn("scheduler", `Task ${task.name} already running, skipping.`);
         return;
       }
       const runId = crypto.randomUUID();
-      console.log(`[scheduler] Triggering task: ${task.name} (${runId})`);
+      log("scheduler", `Triggering task: ${task.name} (${runId})`);
       runAgent(task, runId, "scheduled").catch((err) =>
-        console.error(`[scheduler] Task ${task.name} failed:`, err)
+        error("scheduler", `Task ${task.name} failed`, err)
       );
     });
   } catch (err) {
-    console.error(`[scheduler] Invalid cron expression for task "${task.name}" (${expr}):`, err);
+    error("scheduler", `Invalid cron expression for task "${task.name}" (${expr})`, err);
     return;
   }
 
   jobs.set(task.id, job);
-  console.log(`[scheduler] Registered: ${task.name} → ${expr}`);
+  log("scheduler", `Registered: ${task.name} → ${expr}`);
 }
 
 let digestJob: import("node-cron").ScheduledTask | null = null;
@@ -74,9 +75,9 @@ function registerDigest() {
   };
   const expr = exprMap[freq] ?? `0 ${hour} * * *`;
   digestJob = cron.schedule(expr, () => {
-    sendDailyDigest(getConfig()).catch(console.error);
+    sendDailyDigest(getConfig()).catch((err) => error("scheduler", "Digest send failed", err));
   });
-  console.log(`[scheduler] Digest registered — ${freq} (${expr})`);
+  log("scheduler", `Digest registered — ${freq} (${expr})`);
 }
 
 export function initScheduler() {
@@ -89,7 +90,7 @@ export function initScheduler() {
   }
   registerDigest();
 
-  console.log(`[scheduler] Initialized with ${tasks.length} tasks.`);
+  log("scheduler", `Initialized with ${tasks.length} tasks.`);
 }
 
 export function refreshScheduler() {

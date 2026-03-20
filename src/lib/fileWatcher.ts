@@ -1,5 +1,6 @@
 import { sep } from "path";
 import type { Task } from "./types";
+import { log, error } from "./logger";
 
 let initialized = false;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,12 +44,12 @@ export async function initFileWatcher(tasks: Task[]) {
       if (runs.length > 0) return;
 
       const runId = crypto.randomUUID();
-      console.log(`[fileWatcher] ${filePath} changed → triggering task: ${task.name}`);
-      runAgent(task, runId, "scheduled").catch(console.error);
+      log("fileWatcher", `${filePath} changed → triggering task: ${task.name}`);
+      runAgent(task, runId, "scheduled").catch((err) => error("fileWatcher", `Task ${task.name} failed`, err));
     }
   });
 
-  console.log(`[fileWatcher] Watching ${allPaths.length} paths for ${watched.length} tasks`);
+  log("fileWatcher", `Watching ${allPaths.length} paths for ${watched.length} tasks`);
 }
 
 export async function refreshFileWatcher(tasks: Task[]) {

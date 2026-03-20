@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Task, RunLog } from "@/lib/types";
+import type { LogEntry } from "@/lib/logger";
 
 const statusColor: Record<string, string> = {
   running: "var(--warning)",
@@ -67,17 +68,46 @@ function buildTokenData(runs: RunLog[], days = 14): { label: string; value: numb
   return result;
 }
 
+const levelColor: Record<string, string> = {
+  info:  "var(--text-muted)",
+  warn:  "var(--warning)",
+  error: "var(--error)",
+};
+
+const nsColor = "var(--accent)";
+
 export default function DashboardPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [runs, setRuns] = useState<RunLog[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const logCursor = useRef(0);
+  const logBoxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/tasks").then((r) => r.json()).then(setTasks);
     const loadRuns = () => fetch("/api/runs").then((r) => r.json()).then((d: { runs: RunLog[] }) => setRuns(d.runs ?? d));
     loadRuns();
-    const id = setInterval(loadRuns, 5000);
-    return () => clearInterval(id);
+    const runsId = setInterval(loadRuns, 5000);
+
+    const loadLogs = () =>
+      fetch(`/api/logs?since=${logCursor.current}`)
+        .then((r) => r.json())
+        .then(({ logs: newLogs }: { logs: LogEntry[] }) => {
+          if (!newLogs.length) return;
+          logCursor.current = newLogs[newLogs.length - 1].id;
+          setLogs((prev) => [...prev, ...newLogs].slice(-300));
+        });
+    loadLogs();
+    const logsId = setInterval(loadLogs, 3000);
+
+    return () => { clearInterval(runsId); clearInterval(logsId); };
   }, []);
+
+  // auto-scroll log box to bottom on new entries
+  useEffect(() => {
+    const el = logBoxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [logs]);
 
   const completed = runs.filter((r) => r.status !== "running");
   const succeeded = runs.filter((r) => r.status === "success").length;
@@ -158,6 +188,30 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* System Logs */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, margin: 0 }}>System Logs</h2>
+          <button onClick={() => { setLogs([]); logCursor.current = 0; }}
+            style={{ fontSize: 11, padding: "2px 10px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 6, color: "var(--text-muted)", cursor: "pointer" }}>
+            Clear
+          </button>
+        </div>
+        <div ref={logBoxRef} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 14px", fontFamily: "monospace", fontSize: 12, lineHeight: 1.7, maxHeight: 260, overflowY: "auto" }}>
+          {logs.length === 0
+            ? <span style={{ color: "var(--text-muted)" }}>No logs yet…</span>
+            : logs.map((l) => (
+              <div key={l.id} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+                <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>{l.ts.slice(11, 19)}</span>
+                <span style={{ color: levelColor[l.level], fontWeight: 600, flexShrink: 0, width: 36 }}>{l.level.toUpperCase()}</span>
+                <span style={{ color: nsColor, flexShrink: 0 }}>[{l.ns}]</span>
+                <span style={{ color: l.level === "error" ? "var(--error)" : l.level === "warn" ? "var(--warning)" : "var(--text)", wordBreak: "break-all" }}>{l.msg}</span>
+              </div>
+            ))
+          }
+        </div>
+      </div>
 
       {/* Recent runs */}
       <div>
