@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AppConfig } from "@/lib/types";
+import type { AppConfig, DigestFrequency } from "@/lib/types";
 import { PROVIDERS } from "@/lib/providers";
 import type { ProviderKey } from "@/lib/providers";
 
@@ -14,6 +14,19 @@ export default function SettingsPage() {
   const [testingAI, setTestingAI] = useState(false);
   const [aiStatus, setAiStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [visibleKeys, setVisibleKeys] = useState<Set<ProviderKey>>(new Set());
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [browseData, setBrowseData] = useState<{ path: string; parent: string | null; dirs: string[] } | null>(null);
+
+  const browseTo = async (dir: string) => {
+    const res = await fetch(`/api/browse?path=${encodeURIComponent(dir)}`);
+    const data = await res.json();
+    if (!data.error) setBrowseData(data);
+  };
+
+  const openPicker = () => {
+    setPickerOpen(true);
+    browseTo(config?.baseDir ?? process.env.HOME ?? "/");
+  };
 
   const toggleKeyVisibility = (p: ProviderKey) =>
     setVisibleKeys((prev) => { const next = new Set(prev); next.has(p) ? next.delete(p) : next.add(p); return next; });
@@ -103,10 +116,47 @@ export default function SettingsPage() {
     <div style={{ maxWidth: 640 }}>
       <h1 style={{ margin: "0 0 28px", fontSize: 24, fontWeight: 700 }}>Settings</h1>
 
+      {/* Folder picker modal */}
+      {pickerOpen && browseData && (
+        <div onClick={() => setPickerOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, width: 480, maxHeight: "70vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>Select Folder</span>
+              <button onClick={() => setPickerOpen(false)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: "10px 20px", borderBottom: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)", fontFamily: "monospace", wordBreak: "break-all" }}>
+              {browseData.path}
+            </div>
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {browseData.parent && (
+                <button onClick={() => browseTo(browseData.parent!)} style={{ width: "100%", textAlign: "left", padding: "10px 20px", background: "none", border: "none", borderBottom: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 13, cursor: "pointer" }}>
+                  ↑ ..
+                </button>
+              )}
+              {browseData.dirs.length === 0 && (
+                <div style={{ padding: "16px 20px", fontSize: 13, color: "var(--text-muted)" }}>No subdirectories</div>
+              )}
+              {browseData.dirs.map((d) => (
+                <button key={d} onClick={() => browseTo(`${browseData.path}/${d}`)} style={{ width: "100%", textAlign: "left", padding: "10px 20px", background: "none", border: "none", borderBottom: "1px solid var(--border)", color: "var(--text)", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: "var(--accent)" }}>📁</span> {d}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setPickerOpen(false)} style={secondaryBtn}>Cancel</button>
+              <button onClick={() => { setConfig({ ...config, baseDir: browseData.path }); setPickerOpen(false); }} style={primaryBtn}>Select This Folder</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* General */}
       <Section title="General">
         <Field label="Base Directory">
-          <input value={config.baseDir} onChange={(e) => setConfig({ ...config, baseDir: e.target.value })} style={inputStyle} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={config.baseDir} onChange={(e) => setConfig({ ...config, baseDir: e.target.value })} style={{ ...inputStyle, flex: 1 }} placeholder="/path/to/folder" />
+            <button onClick={openPicker} style={{ ...secondaryBtn, whiteSpace: "nowrap" }}>Browse…</button>
+          </div>
         </Field>
         <Field label="Theme">
           <div style={{ display: "flex", gap: 8 }}>
@@ -183,36 +233,56 @@ export default function SettingsPage() {
       </Section>
 
       {/* SMTP */}
-      <Section title="Email (SMTP)">
+      <Section title="Email">
         <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
           <input type="checkbox" checked={config.smtp.enabled} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, enabled: e.target.checked } })} style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
-          <span style={{ fontSize: 14 }}>Enable email digests after runs</span>
+          <span style={{ fontSize: 14 }}>Enable email updates after runs</span>
         </label>
-        <Field label="SMTP Host"><input value={config.smtp.host} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, host: e.target.value } })} style={inputStyle} /></Field>
-        <Field label="SMTP Port"><input type="number" value={config.smtp.port} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, port: +e.target.value } })} style={inputStyle} /></Field>
-        <Field label="Username"><input value={config.smtp.user} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, user: e.target.value } })} style={inputStyle} /></Field>
-        <Field label="Password"><input type="password" value={config.smtp.pass} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, pass: e.target.value } })} placeholder="Gmail App Password" style={inputStyle} /></Field>
-        <Field label="Send To"><input type="email" value={config.smtp.toAddress} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, toAddress: e.target.value } })} style={inputStyle} /></Field>
+        <Field label="Receive updates at">
+          <input type="email" value={config.smtp.toAddress} onChange={(e) => setConfig({ ...config, smtp: { ...config.smtp, toAddress: e.target.value } })} placeholder="you@example.com" style={inputStyle} />
+        </Field>
         <button onClick={testEmail} disabled={testingEmail || !config.smtp.enabled} style={{ ...secondaryBtn, opacity: config.smtp.enabled ? 1 : 0.5 }}>
           {testingEmail ? "Sending…" : "Send Test Email"}
         </button>
       </Section>
 
-      {/* Daily Digest */}
-      <Section title="Daily Digest">
+      {/* Digest */}
+      <Section title="Digest">
         <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
           <input type="checkbox" checked={config.digest?.enabled ?? false}
-            onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { hour: 8 }), enabled: e.target.checked } })}
+            onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { frequency: "daily", hour: 8 }), enabled: e.target.checked } })}
             style={{ accentColor: "var(--accent)", width: 16, height: 16 }} />
-          <span style={{ fontSize: 14 }}>Send daily digest email</span>
+          <span style={{ fontSize: 14 }}>Send a digest email summarising agent runs</span>
         </label>
-        <Field label="Send at hour (0–23)">
-          <input type="number" min={0} max={23} value={config.digest?.hour ?? 8}
-            onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { enabled: false }), hour: +e.target.value } })}
-            style={{ ...inputStyle, width: 80 }} />
+        <Field label="Frequency">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            {([
+              { value: "every_2h",  label: "Every 2 h" },
+              { value: "every_4h",  label: "Every 4 h" },
+              { value: "every_6h",  label: "Every 6 h" },
+              { value: "every_8h",  label: "Every 8 h" },
+              { value: "every_12h", label: "Every 12 h" },
+              { value: "daily",     label: "Once daily" },
+            ] as { value: DigestFrequency; label: string }[]).map(({ value, label }) => {
+              const active = (config.digest?.frequency ?? "daily") === value;
+              return (
+                <button key={value} onClick={() => setConfig({ ...config, digest: { ...(config.digest ?? { enabled: false, hour: 8 }), frequency: value } })}
+                  style={{ padding: "8px 4px", fontSize: 13, borderRadius: 8, border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`, background: active ? "rgba(124,110,247,0.12)" : "var(--surface2)", color: active ? "var(--accent)" : "var(--text)", fontWeight: active ? 600 : 400, cursor: "pointer" }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </Field>
-        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          Digest requires SMTP to be configured. It summarises the last 24 h of runs.
+        {(config.digest?.frequency ?? "daily") === "daily" && (
+          <Field label="Send at (hour, 0–23)">
+            <input type="number" min={0} max={23} value={config.digest?.hour ?? 8}
+              onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { enabled: false, frequency: "daily" }), hour: +e.target.value } })}
+              style={{ ...inputStyle, width: 90 }} />
+          </Field>
+        )}
+        <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+          Each digest covers the period since the last one was sent. Requires the Email section to be enabled with a recipient address.
         </div>
       </Section>
 

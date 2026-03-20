@@ -123,9 +123,12 @@ export interface SMTPConfig {
   enabled: boolean;
 }
 
+export type DigestFrequency = "every_2h" | "every_4h" | "every_6h" | "every_8h" | "every_12h" | "daily";
+
 export interface DigestConfig {
   enabled: boolean;
-  hour: number;   // 0-23, time to send daily digest
+  frequency: DigestFrequency;
+  hour: number;   // 0-23, only used when frequency === "daily"
 }
 
 export interface AppConfig {

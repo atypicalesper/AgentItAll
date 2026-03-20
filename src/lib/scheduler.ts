@@ -62,12 +62,21 @@ function registerDigest() {
   digestJob?.stop();
   const config = getConfig();
   if (!config.digest?.enabled) return;
+  const freq = config.digest.frequency ?? "daily";
   const hour = config.digest.hour ?? 8;
-  const expr = `0 ${hour} * * *`;
+  const exprMap: Record<string, string> = {
+    every_2h:  "0 */2 * * *",
+    every_4h:  "0 */4 * * *",
+    every_6h:  "0 */6 * * *",
+    every_8h:  "0 */8 * * *",
+    every_12h: "0 */12 * * *",
+    daily:     `0 ${hour} * * *`,
+  };
+  const expr = exprMap[freq] ?? `0 ${hour} * * *`;
   digestJob = cron.schedule(expr, () => {
     sendDailyDigest(getConfig()).catch(console.error);
   });
-  console.log(`[scheduler] Daily digest registered at ${hour}:00`);
+  console.log(`[scheduler] Digest registered — ${freq} (${expr})`);
 }
 
 export function initScheduler() {
