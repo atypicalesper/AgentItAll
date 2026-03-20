@@ -16,6 +16,16 @@ export async function POST(req: Request) {
   const task = getTask(taskId);
   if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 });
 
+  // Warn caller about missing input variables so they don't silently run with empty placeholders
+  const declaredVars = task.inputVars ?? [];
+  const missing = declaredVars.filter((v) => !inputVarValues?.[v]);
+  if (missing.length > 0) {
+    return NextResponse.json(
+      { error: `Missing required input variables: ${missing.join(", ")}` },
+      { status: 400 }
+    );
+  }
+
   const runId = crypto.randomUUID();
   runAgent(task, runId, "manual", inputVarValues).catch((err) =>
     console.error(`[execute] Run ${runId} failed:`, err)

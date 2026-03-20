@@ -81,14 +81,19 @@ function migrateFromJson(db: Database.Database) {
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
+function parseJson<T>(data: string, fallback?: T): T | undefined {
+  try { return JSON.parse(data) as T; }
+  catch { console.error("[db] Failed to parse JSON:", data.slice(0, 80)); return fallback; }
+}
+
 export function getTasks(): Task[] {
   const rows = getDb().prepare("SELECT data FROM tasks").all() as { data: string }[];
-  return rows.map((r) => JSON.parse(r.data) as Task);
+  return rows.map((r) => parseJson<Task>(r.data)).filter((t): t is Task => t !== undefined);
 }
 
 export function getTask(id: string): Task | undefined {
   const row = getDb().prepare("SELECT data FROM tasks WHERE id=?").get(id) as { data: string } | undefined;
-  return row ? JSON.parse(row.data) as Task : undefined;
+  return row ? parseJson<Task>(row.data) : undefined;
 }
 
 export function saveTasks(tasks: Task[]): void {
@@ -106,7 +111,11 @@ export function upsertTask(task: Task): void {
 }
 
 export function deleteTask(id: string): void {
-  getDb().prepare("DELETE FROM tasks WHERE id=?").run(id);
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare("DELETE FROM runs WHERE task_id=?").run(id);
+    db.prepare("DELETE FROM tasks WHERE id=?").run(id);
+  })();
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -125,7 +134,12 @@ function buildRunsWhere(query: Omit<RunsQuery, "page" | "limit">): { where: stri
   const params: unknown[] = [];
   if (taskId) { where += " AND task_id=?"; params.push(taskId); }
   if (status && status !== "all") { where += " AND status=?"; params.push(status); }
-  if (search) { where += " AND LOWER(json_extract(data,'$.taskName')) LIKE ?"; params.push(`%${search.toLowerCase()}%`); }
+  if (search) {
+    // Escape LIKE special chars so user input like "%" doesn't wildcard-match everything
+    const escaped = search.toLowerCase().replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+    where += " AND LOWER(json_extract(data,'$.taskName')) LIKE ? ESCAPE '\\'";
+    params.push(`%${escaped}%`);
+  }
   return { where, params };
 }
 
@@ -135,7 +149,7 @@ export function getRuns(query: RunsQuery = {}): RunLog[] {
   let sql = `SELECT data FROM runs ${where} ORDER BY started_at DESC`;
   if (limit > 0) { sql += " LIMIT ? OFFSET ?"; params.push(limit, (page - 1) * limit); }
   const rows = getDb().prepare(sql).all(...params) as { data: string }[];
-  return rows.map((r) => JSON.parse(r.data) as RunLog);
+  return rows.map((r) => parseJson<RunLog>(r.data)).filter((r): r is RunLog => r !== undefined);
 }
 
 export function getRunsCount(query: Omit<RunsQuery, "page" | "limit"> = {}): number {
@@ -146,7 +160,7 @@ export function getRunsCount(query: Omit<RunsQuery, "page" | "limit"> = {}): num
 
 export function getRun(id: string): RunLog | undefined {
   const row = getDb().prepare("SELECT data FROM runs WHERE id=?").get(id) as { data: string } | undefined;
-  return row ? JSON.parse(row.data) as RunLog : undefined;
+  return row ? parseJson<RunLog>(row.data) : undefined;
 }
 
 export function upsertRun(run: RunLog): void {
@@ -198,7 +212,7 @@ const defaultConfig: AppConfig = {
 
 export function getConfig(): AppConfig {
   const row = getDb().prepare("SELECT data FROM config WHERE id=1").get() as { data: string } | undefined;
-  const raw = row ? JSON.parse(row.data) as Record<string, unknown> : {};
+  const raw = row ? (parseJson<Record<string, unknown>>(row.data) ?? {}) : {};
   const ai = (raw.ai ?? {}) as Record<string, unknown>;
   if (!ai.keys && ai.apiKey) {
     ai.keys = { anthropic: ai.apiKey as string, groq: "", google: "", openai: "" };

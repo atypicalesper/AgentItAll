@@ -22,8 +22,8 @@ async function makeToken(password: string): Promise<string> {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // No password configured — open access
-  if (!PASSWORD) return NextResponse.next();
+  // No password configured — open access (empty string = auth disabled)
+  if (!PASSWORD.trim()) return NextResponse.next();
 
   // Always pass auth endpoints and login page
   if (

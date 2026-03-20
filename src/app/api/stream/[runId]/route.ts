@@ -6,26 +6,46 @@ export async function GET(_: Request, { params }: { params: Promise<{ runId: str
   const stream = new ReadableStream({
     start(controller) {
       const emitter = getStream(runId);
+      const enc = new TextEncoder();
 
       const send = (chunk: string) => {
-        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        try {
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        } catch {
+          // Client disconnected — stop listening
+          cleanup();
+        }
+      };
+
+      const onDone = () => {
+        try {
+          controller.enqueue(enc.encode("data: [DONE]\n\n"));
+          controller.close();
+        } catch { /* already closed */ }
+        cleanup();
+      };
+
+      const onError = (err: string) => {
+        send(`[error] ${err}`);
+        try { controller.close(); } catch { /* already closed */ }
+        cleanup();
+      };
+
+      const cleanup = () => {
+        emitter?.off("chunk", send);
+        emitter?.off("done", onDone);
+        emitter?.off("error", onError);
       };
 
       if (!emitter) {
         send("[stream] Run not found or already completed.");
-        controller.close();
+        try { controller.close(); } catch { /* already closed */ }
         return;
       }
 
       emitter.on("chunk", send);
-      emitter.on("done", () => {
-        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
-        controller.close();
-      });
-      emitter.on("error", (err: string) => {
-        send(`[error] ${err}`);
-        controller.close();
-      });
+      emitter.on("done", onDone);
+      emitter.on("error", onError);
     },
   });
 

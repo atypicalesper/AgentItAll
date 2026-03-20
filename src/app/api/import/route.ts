@@ -33,7 +33,14 @@ export async function POST(req: Request) {
       if (invalid.length) return NextResponse.json({ ok: false, error: `${invalid.length} run(s) missing required fields (id, taskId, startedAt)` }, { status: 400 });
       saveRuns(body.runs as RunLog[]);
     }
-    if (body.config && typeof body.config === "object") saveConfig(body.config as AppConfig);
+    if (body.config !== undefined) {
+      if (!body.config || typeof body.config !== "object" || Array.isArray(body.config))
+        return NextResponse.json({ ok: false, error: "config must be an object" }, { status: 400 });
+      const c = body.config as Record<string, unknown>;
+      if (c.ai !== undefined && (typeof c.ai !== "object" || Array.isArray(c.ai)))
+        return NextResponse.json({ ok: false, error: "config.ai must be an object" }, { status: 400 });
+      saveConfig(body.config as AppConfig);
+    }
     refreshScheduler();
     return NextResponse.json({ ok: true });
   } catch (err) {

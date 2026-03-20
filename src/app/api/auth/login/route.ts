@@ -11,7 +11,7 @@ function makeToken(password: string): string {
 export async function POST(req: Request) {
   const { password } = await req.json() as { password: string };
 
-  if (!PASSWORD || password !== PASSWORD) {
+  if (!PASSWORD.trim() || password !== PASSWORD) {
     return NextResponse.json({ ok: false, error: "Invalid password" }, { status: 401 });
   }
 

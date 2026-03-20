@@ -81,8 +81,12 @@ export default function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const text = await file.text();
-    const data = JSON.parse(text);
-    await fetch("/api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    let data: unknown;
+    try { data = JSON.parse(text); }
+    catch { alert("Invalid JSON file."); return; }
+    const res = await fetch("/api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    const result = await res.json() as { ok: boolean; error?: string };
+    if (!result.ok) { alert(`Import failed: ${result.error}`); return; }
     alert("Import complete. Reload to see updated data.");
   };
 

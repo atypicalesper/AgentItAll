@@ -19,21 +19,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ok: true });
   }
 
-  // approve — commit each repo
-  let sha = "";
+  if (!task) {
+    // Task was deleted — still commit the written files but skip push
+    const newEdits = [...run.edits];
+    const shas: string[] = [];
+    for (const repoPath of run.repos) {
+      const diff = getDiff(repoPath);
+      const sha = commitAll(repoPath, run.pendingCommitMessage ?? "agent: approved commit");
+      if (sha) shas.push(sha);
+      if (diff) newEdits.push(...parseDiff(diff));
+    }
+    upsertRun({ ...run, approvalStatus: "approved", commitSha: shas[0], edits: newEdits });
+    return NextResponse.json({ ok: true, warning: "Task was deleted; changes committed but not pushed" });
+  }
+
+  // approve — commit each repo, collect all SHAs
+  const shas: string[] = [];
   const newEdits = [...run.edits];
+  let pushed = false;
   for (const repoPath of run.repos) {
     const diff = getDiff(repoPath);
-    sha = commitAll(repoPath, run.pendingCommitMessage ?? "agent: approved commit");
+    const sha = commitAll(repoPath, run.pendingCommitMessage ?? "agent: approved commit");
+    if (sha) shas.push(sha);
     if (diff) newEdits.push(...parseDiff(diff));
-    if (task?.permissions.push) {
+    if (task.permissions.push) {
       try {
         if (run.branchName) pushBranch(repoPath, run.branchName);
         else push(repoPath);
-      } catch { /* non-fatal */ }
+        pushed = true;
+      } catch { /* non-fatal — push errors logged but don't block approval */ }
     }
   }
 
-  upsertRun({ ...run, approvalStatus: "approved", commitSha: sha || undefined, pushed: !!task?.permissions.push, edits: newEdits });
+  upsertRun({ ...run, approvalStatus: "approved", commitSha: shas[0], commitShas: shas, pushed, edits: newEdits });
   return NextResponse.json({ ok: true });
 }

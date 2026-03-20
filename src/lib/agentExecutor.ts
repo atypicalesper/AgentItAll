@@ -3,11 +3,11 @@ import { z } from "zod";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { execSync, execFileSync } from "child_process";
-import type { Task, RunLog, TokenUsage } from "./types";
+import type { Task, RunLog } from "./types";
 import { getConfig, upsertRun, getRun, getTask } from "./db";
 import {
   getFileTree, readFile, getDiff, commitAll, push,
-  createBranch, pushBranch, getRemoteUrl, parseOwnerRepo, discardChanges,
+  createBranch, pushBranch, getRemoteUrl, parseOwnerRepo,
 } from "./gitOps";
 import { createStream, emit, closeStream } from "./streamStore";
 import { sendEmail } from "./emailer";
@@ -27,6 +27,16 @@ function log(runId: string, msg: string) {
 
 function runCmd(cwd: string, command: string): string {
   return runCmdEnv(cwd, command);
+}
+
+// Verify the LLM-supplied repo_path is actually one of the task's registered repos.
+// This prevents prompt injection from escaping to arbitrary filesystem paths.
+function assertAllowedRepo(repoPath: string, allowedRepos: string[]): void {
+  const realPath = repoPath.replace(/\/+$/, ""); // strip trailing slash
+  const allowed = allowedRepos.map((r) => r.replace(/\/+$/, ""));
+  if (!allowed.some((a) => realPath === a || realPath.startsWith(a + "/"))) {
+    throw new Error(`repo_path "${repoPath}" is not in the task's allowed repos`);
+  }
 }
 
 function runCmdEnv(cwd: string, command: string, env?: NodeJS.ProcessEnv): string {
@@ -156,6 +166,7 @@ ${repoContexts}`;
             file_path: z.string().describe("Relative file path within the repo"),
           }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             log(runId, `[tool] read_file: ${input.file_path}\n`);
             return readFile(input.repo_path, input.file_path);
           },
@@ -169,6 +180,7 @@ ${repoContexts}`;
             content: z.string().describe("Full file content to write"),
           }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             if (task.dryRun) {
               log(runId, `[tool] write_file (dry-run): ${input.file_path}\n`);
               return `(dry-run) Would write ${input.file_path} (${input.content.length} chars)`;
@@ -192,6 +204,7 @@ ${repoContexts}`;
             context_lines: z.number().optional().describe("Lines of context around each match (default 2)"),
           }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             log(runId, `[tool] search_files: ${input.pattern}${input.glob ? ` [${input.glob}]` : ""}\n`);
             const ctx = String(input.context_lines ?? 2);
             try {
@@ -222,6 +235,7 @@ ${repoContexts}`;
             })).describe("List of search/replace pairs applied in order"),
           }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             if (task.dryRun) return `(dry-run) Would patch ${input.file_path} with ${input.edits.length} edit(s)`;
             log(runId, `[tool] patch_file: ${input.file_path} (${input.edits.length} edit(s))\n`);
             const fullPath = join(input.repo_path, input.file_path);
@@ -246,6 +260,7 @@ ${repoContexts}`;
             command: z.string(),
           }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             if (!task.permissions.runCommands) return "(permission denied: runCommands is disabled)";
             log(runId, `[tool] run_command: ${input.command}\n`);
             run.commandsRun.push(input.command);
@@ -263,6 +278,7 @@ ${repoContexts}`;
             message: z.string().describe("Commit message"),
           }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             if (!task.permissions.commit) return "(permission denied: commit is disabled)";
             if (task.dryRun) {
               log(runId, `[tool] commit (dry-run): ${input.message}\n`);
@@ -302,8 +318,10 @@ ${repoContexts}`;
           description: ct.description,
           inputSchema: z.object({ repo_path: z.string() }),
           execute: async (input) => {
+            assertAllowedRepo(input.repo_path, task.repos);
             if (!task.permissions.runCommands) return "(permission denied: runCommands is disabled)";
-            const cmd = ct.command.replace("{{repo_path}}", input.repo_path);
+            // Use the registered repo_path — do NOT interpolate it into a shell string
+            const cmd = ct.command.replace("{{repo_path}}", input.repo_path.replace(/'/g, "'\\''"));
             log(runId, `[tool] ${ct.name}: ${cmd}\n`);
             run.commandsRun.push(cmd);
             const env = task.envVars ? { ...process.env, ...task.envVars } : undefined;
@@ -436,16 +454,21 @@ ${repoContexts}`;
       // Slack / Discord notifications
       notifySuccess(task, run).catch(() => {});
 
-      // Task chaining
+      // Task chaining — fire child runs and record their IDs on the parent
       if (task.triggerTaskIds?.length) {
+        if (!run.chainedRunIds) run.chainedRunIds = [];
         for (const tid of task.triggerTaskIds) {
           const chained = getTask(tid);
           if (chained) {
             const chainRunId = crypto.randomUUID();
-            log(runId, `\n[chain] Triggering task: ${chained.name}\n`);
-            runAgent(chained, chainRunId, "scheduled").catch(console.error);
+            run.chainedRunIds.push(chainRunId);
+            log(runId, `\n[chain] Triggering task: ${chained.name} (runId: ${chainRunId})\n`);
+            runAgent(chained, chainRunId, "scheduled").catch((err) =>
+              console.error(`[chain] Task ${chained.name} (${chainRunId}) failed:`, err)
+            );
           }
         }
+        upsertRun(run); // persist chainedRunIds
       }
 
       lastErr = undefined;

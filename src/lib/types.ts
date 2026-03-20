@@ -91,11 +91,13 @@ export interface RunLog {
   tokenUsage?: TokenUsage;
   branchName?: string;
   prUrl?: string;
+  commitShas?: string[];
   approvalStatus?: ApprovalStatus;
   pendingCommitMessage?: string;
   isDryRun?: boolean;
   estimatedCost?: number;
   inputVarValues?: Record<string, string>;
+  chainedRunIds?: string[];
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────
