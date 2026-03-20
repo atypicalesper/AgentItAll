@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import type { Task, RunLog, AppConfig } from "./types";
+import { error as logError } from "./logger";
 
 const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "agentitall.db");
@@ -24,24 +25,96 @@ function getDb(): Database.Database {
 function initSchema(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
-      data TEXT NOT NULL
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL DEFAULT '',
+      enabled     INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT,
+      updated_at  TEXT,
+      data        TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS runs (
-      id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      started_at TEXT NOT NULL,
-      status TEXT NOT NULL,
-      data TEXT NOT NULL
+      id             TEXT PRIMARY KEY,
+      task_id        TEXT NOT NULL,
+      task_name      TEXT NOT NULL DEFAULT '',
+      started_at     TEXT NOT NULL,
+      finished_at    TEXT,
+      status         TEXT NOT NULL,
+      trigger        TEXT NOT NULL DEFAULT 'manual',
+      pushed         INTEGER NOT NULL DEFAULT 0,
+      email_sent     INTEGER NOT NULL DEFAULT 0,
+      estimated_cost REAL,
+      total_tokens   INTEGER,
+      error          TEXT,
+      data           TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_runs_task_id ON runs(task_id);
-    CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+    CREATE INDEX IF NOT EXISTS idx_runs_task_id    ON runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_status     ON runs(status);
     CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_enabled   ON tasks(enabled);
     CREATE TABLE IF NOT EXISTS config (
-      id INTEGER PRIMARY KEY CHECK(id = 1),
+      id   INTEGER PRIMARY KEY CHECK(id = 1),
       data TEXT NOT NULL
     );
   `);
+
+  // Add new columns to existing tables without dropping data
+  const addCol = (table: string, col: string, def: string) => {
+    const exists = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((r) => r.name === col);
+    if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+  };
+  addCol("tasks", "name",       "TEXT NOT NULL DEFAULT ''");
+  addCol("tasks", "enabled",    "INTEGER NOT NULL DEFAULT 1");
+  addCol("tasks", "created_at", "TEXT");
+  addCol("tasks", "updated_at", "TEXT");
+  addCol("runs",  "task_name",      "TEXT NOT NULL DEFAULT ''");
+  addCol("runs",  "finished_at",    "TEXT");
+  addCol("runs",  "trigger",        "TEXT NOT NULL DEFAULT 'manual'");
+  addCol("runs",  "pushed",         "INTEGER NOT NULL DEFAULT 0");
+  addCol("runs",  "email_sent",     "INTEGER NOT NULL DEFAULT 0");
+  addCol("runs",  "estimated_cost", "REAL");
+  addCol("runs",  "total_tokens",   "INTEGER");
+  addCol("runs",  "error",          "TEXT");
+
+  // Backfill proper columns from existing JSON blobs
+  backfill(db);
+}
+
+function backfill(db: Database.Database) {
+  // tasks — only rows where name is still empty
+  const staleTasks = db.prepare("SELECT id, data FROM tasks WHERE name = ''").all() as { id: string; data: string }[];
+  const updateTask = db.prepare("UPDATE tasks SET name=?, enabled=?, created_at=?, updated_at=? WHERE id=?");
+  db.transaction(() => {
+    for (const row of staleTasks) {
+      try {
+        const t = JSON.parse(row.data) as Task;
+        updateTask.run(t.name ?? "", t.enabled ? 1 : 0, t.createdAt ?? null, t.updatedAt ?? null, row.id);
+      } catch { /* skip corrupt row */ }
+    }
+  })();
+
+  // runs — only rows where task_name is still empty
+  const staleRuns = db.prepare("SELECT id, data FROM runs WHERE task_name = ''").all() as { id: string; data: string }[];
+  const updateRun = db.prepare(`
+    UPDATE runs SET task_name=?, finished_at=?, trigger=?, pushed=?, email_sent=?, estimated_cost=?, total_tokens=?, error=? WHERE id=?
+  `);
+  db.transaction(() => {
+    for (const row of staleRuns) {
+      try {
+        const r = JSON.parse(row.data) as RunLog;
+        updateRun.run(
+          r.taskName ?? "",
+          r.finishedAt ?? null,
+          r.trigger ?? "manual",
+          r.pushed ? 1 : 0,
+          r.emailSent ? 1 : 0,
+          r.estimatedCost ?? null,
+          r.tokenUsage?.totalTokens ?? null,
+          r.error ?? null,
+          row.id,
+        );
+      } catch { /* skip corrupt row */ }
+    }
+  })();
 }
 
 // One-time migration from JSON files
@@ -83,7 +156,7 @@ function migrateFromJson(db: Database.Database) {
 
 function parseJson<T>(data: string, fallback?: T): T | undefined {
   try { return JSON.parse(data) as T; }
-  catch { console.error("[db] Failed to parse JSON:", data.slice(0, 80)); return fallback; }
+  catch { logError("db", `Failed to parse JSON: ${data.slice(0, 80)}`); return fallback; }
 }
 
 export function getTasks(): Task[] {
@@ -107,7 +180,10 @@ export function saveTasks(tasks: Task[]): void {
 }
 
 export function upsertTask(task: Task): void {
-  getDb().prepare("INSERT OR REPLACE INTO tasks(id,data) VALUES(?,?)").run(task.id, JSON.stringify(task));
+  getDb().prepare(`
+    INSERT OR REPLACE INTO tasks(id, name, enabled, created_at, updated_at, data)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(task.id, task.name ?? "", task.enabled ? 1 : 0, task.createdAt ?? null, task.updatedAt ?? null, JSON.stringify(task));
 }
 
 export function deleteTask(id: string): void {
@@ -164,8 +240,20 @@ export function getRun(id: string): RunLog | undefined {
 }
 
 export function upsertRun(run: RunLog): void {
-  getDb().prepare("INSERT OR REPLACE INTO runs(id,task_id,started_at,status,data) VALUES(?,?,?,?,?)")
-    .run(run.id, run.taskId, run.startedAt, run.status, JSON.stringify(run));
+  getDb().prepare(`
+    INSERT OR REPLACE INTO runs(id, task_id, task_name, started_at, finished_at, status, trigger, pushed, email_sent, estimated_cost, total_tokens, error, data)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    run.id, run.taskId, run.taskName ?? "",
+    run.startedAt, run.finishedAt ?? null, run.status,
+    run.trigger ?? "manual",
+    run.pushed ? 1 : 0,
+    run.emailSent ? 1 : 0,
+    run.estimatedCost ?? null,
+    run.tokenUsage?.totalTokens ?? null,
+    run.error ?? null,
+    JSON.stringify(run),
+  );
 }
 
 export function deleteRun(id: string): void {
