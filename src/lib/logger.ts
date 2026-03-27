@@ -12,6 +12,11 @@ const MAX = 500;
 const entries: LogEntry[] = [];
 let seq = 0;
 
+// DB sink — registered by db.ts after the connection is ready (avoids circular import)
+type LogSink = (entry: LogEntry) => void;
+let dbSink: LogSink | null = null;
+export function setLogSink(sink: LogSink) { dbSink = sink; }
+
 function add(level: LogLevel, ns: string, msg: string) {
   const entry: LogEntry = { id: ++seq, ts: new Date().toISOString(), level, ns, msg };
   entries.push(entry);
@@ -19,6 +24,7 @@ function add(level: LogLevel, ns: string, msg: string) {
   const prefix = `[${entry.ts.slice(11, 19)}] [${level.toUpperCase().padEnd(5)}] [${ns}]`;
   if (level === "error") process.stderr.write(`${prefix} ${msg}\n`);
   else process.stdout.write(`${prefix} ${msg}\n`);
+  try { dbSink?.(entry); } catch { /* never let a log write crash the caller */ }
 }
 
 export function log(ns: string, msg: string) {

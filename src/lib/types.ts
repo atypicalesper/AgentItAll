@@ -132,7 +132,8 @@ export interface DigestConfig {
 }
 
 export interface AppConfig {
-  baseDir: string;
+  baseDir: string;       // legacy — kept for backwards compat, use baseDirs
+  baseDirs: string[];    // list of root directories to scan
   theme: "dark" | "light";
   ai: AIProviderConfig;
   smtp: SMTPConfig;

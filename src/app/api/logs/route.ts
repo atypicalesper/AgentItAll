@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLogs } from "@/lib/logger";
+import { getDbLogs } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   const since = Number(req.nextUrl.searchParams.get("since") ?? "0");
-  return NextResponse.json({ logs: getLogs(since) });
+  const limit = Number(req.nextUrl.searchParams.get("limit") ?? "500");
+  return NextResponse.json({ logs: getDbLogs(since, limit) });
 }

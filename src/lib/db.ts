@@ -1,8 +1,28 @@
+// TODO: Change Log table
+// Add a `changes` table to persist a running audit log of every meaningful
+// event in the system:
+//   - Task created / updated / deleted
+//   - Run started / finished / failed
+//   - Files modified by an agent (path, before/after diff hash)
+//   - Git commits made by agent runs (repo, sha, message)
+//   - Config changes (which field changed, old value → new value)
+// Schema sketch:
+//   CREATE TABLE changes (
+//     id         TEXT PRIMARY KEY,
+//     ts         TEXT NOT NULL,          -- ISO timestamp
+//     kind       TEXT NOT NULL,          -- 'task' | 'run' | 'file' | 'git' | 'config'
+//     action     TEXT NOT NULL,          -- 'create' | 'update' | 'delete' | 'commit' etc.
+//     entity_id  TEXT,                   -- task/run id if applicable
+//     summary    TEXT NOT NULL,          -- human-readable one-liner
+//     detail     TEXT                    -- JSON blob with full before/after
+//   );
+// Surface this in a /changes or /activity page with filters by kind/date/repo.
+
 import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import type { Task, RunLog, AppConfig } from "./types";
-import { error as logError } from "./logger";
+import { error as logError, setLogSink, type LogEntry } from "./logger";
 
 const DATA_DIR = join(process.cwd(), "data");
 const DB_PATH = join(DATA_DIR, "agentitall.db");
@@ -11,13 +31,24 @@ const DB_PATH = join(DATA_DIR, "agentitall.db");
 
 let _db: Database.Database | null = null;
 
+const insertLog = (() => {
+  let stmt: ReturnType<Database.Database["prepare"]> | null = null;
+  return (db: Database.Database, e: LogEntry) => {
+    if (!stmt) stmt = db.prepare("INSERT INTO logs(ts,level,ns,msg) VALUES(?,?,?,?)");
+    stmt.run(e.ts, e.level, e.ns, e.msg);
+  };
+})();
+
 function getDb(): Database.Database {
   if (_db) return _db;
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   _db = new Database(DB_PATH);
   _db.pragma("journal_mode = WAL");
   _db.pragma("synchronous = NORMAL");
+  _db.pragma("cache_size = -8000");   // 8 MB page cache
+  _db.pragma("temp_store = MEMORY");
   initSchema(_db);
+  setLogSink((e) => insertLog(_db!, e));
   migrateFromJson(_db);
   return _db;
 }
@@ -55,6 +86,16 @@ function initSchema(db: Database.Database) {
       id   INTEGER PRIMARY KEY CHECK(id = 1),
       data TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS logs (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts    TEXT NOT NULL,
+      level TEXT NOT NULL,
+      ns    TEXT NOT NULL,
+      msg   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_logs_ts    ON logs(ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
+    CREATE INDEX IF NOT EXISTS idx_logs_ns    ON logs(ns);
   `);
 
   // Add new columns to existing tables without dropping data
@@ -280,6 +321,7 @@ export function saveRuns(runs: RunLog[]): void {
 
 const defaultConfig: AppConfig = {
   baseDir: `${process.env.HOME}/Desktop/pp`,
+  baseDirs: [`${process.env.HOME}/Desktop/pp`],
   theme: "dark",
   ai: {
     provider: "groq",
@@ -308,9 +350,14 @@ export function getConfig(): AppConfig {
   ai.keys = { ...defaultConfig.ai.keys, ...(ai.keys as Record<string, string> ?? {}) };
   if (!ai.provider) ai.provider = defaultConfig.ai.provider;
   if (!ai.model) ai.model = defaultConfig.ai.model;
+  // Migrate: if baseDirs not saved yet, seed from baseDir
+  const baseDirs: string[] = Array.isArray(raw.baseDirs) && (raw.baseDirs as string[]).length > 0
+    ? raw.baseDirs as string[]
+    : [(raw.baseDir as string | undefined) ?? defaultConfig.baseDir];
   return {
     ...defaultConfig,
     ...raw,
+    baseDirs,
     ai: ai as unknown as AppConfig["ai"],
     smtp: {
       ...defaultConfig.smtp,
@@ -329,4 +376,21 @@ export function getConfig(): AppConfig {
 export function saveConfig(config: AppConfig): void {
   const data = JSON.stringify({ ...config, updatedAt: new Date().toISOString() });
   getDb().prepare("INSERT OR REPLACE INTO config(id,data) VALUES(1,?)").run(data);
+}
+
+// ── Logs ──────────────────────────────────────────────────────────────────────
+
+export function getDbLogs(sinceId = 0, limit = 500): LogEntry[] {
+  const rows = getDb()
+    .prepare("SELECT id,ts,level,ns,msg FROM logs WHERE id > ? ORDER BY id ASC LIMIT ?")
+    .all(sinceId, limit) as LogEntry[];
+  return rows;
+}
+
+export function pruneDbLogs(keepRows = 5000): void {
+  getDb().exec(`
+    DELETE FROM logs WHERE id NOT IN (
+      SELECT id FROM logs ORDER BY id DESC LIMIT ${keepRows}
+    )
+  `);
 }

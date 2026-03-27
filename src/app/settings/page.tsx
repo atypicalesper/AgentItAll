@@ -1,5 +1,18 @@
 "use client";
 
+// TODO: Multi-folder selection in Settings
+// Currently `baseDir` is a single root directory. Evolve this into a
+// multi-select folder picker so users can choose specific repos/folders
+// to watch rather than scanning an entire root.
+//
+// Future integrations to trigger from agent-it-all on a schedule:
+//   - dev-atlas doc generation / sync
+//   - COMET RAG re-indexing when source files change
+//   - rag-backend vector store refresh
+//   - Portfolio auto-deploy on content changes
+// Each integration should be a named "flow" that can be enabled/disabled
+// per-task, with its own schedule and target folder(s).
+
 import { useEffect, useState } from "react";
 import type { AppConfig, DigestFrequency } from "@/lib/types";
 import { PROVIDERS } from "@/lib/providers";
@@ -23,9 +36,12 @@ export default function SettingsPage() {
     if (!data.error) setBrowseData(data);
   };
 
-  const openPicker = () => {
+  const [addingDir, setAddingDir] = useState(false);
+
+  const openPicker = (forAdd = false) => {
+    setAddingDir(forAdd);
     setPickerOpen(true);
-    browseTo(config?.baseDir ?? process.env.HOME ?? "/");
+    browseTo(config?.baseDirs?.[0] ?? config?.baseDir ?? process.env.HOME ?? "/");
   };
 
   const toggleKeyVisibility = (p: ProviderKey) =>
@@ -144,7 +160,15 @@ export default function SettingsPage() {
             </div>
             <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button onClick={() => setPickerOpen(false)} style={secondaryBtn}>Cancel</button>
-              <button onClick={() => { setConfig({ ...config, baseDir: browseData.path }); setPickerOpen(false); }} style={primaryBtn}>Select This Folder</button>
+              <button onClick={() => {
+                if (addingDir) {
+                  const dirs = config.baseDirs ?? [config.baseDir];
+                  if (!dirs.includes(browseData.path)) setConfig({ ...config, baseDirs: [...dirs, browseData.path] });
+                } else {
+                  setConfig({ ...config, baseDirs: [browseData.path], baseDir: browseData.path });
+                }
+                setPickerOpen(false);
+              }} style={primaryBtn}>Select This Folder</button>
             </div>
           </div>
         </div>
@@ -152,10 +176,26 @@ export default function SettingsPage() {
 
       {/* General */}
       <Section title="General">
-        <Field label="Base Directory">
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={config.baseDir} onChange={(e) => setConfig({ ...config, baseDir: e.target.value })} style={{ ...inputStyle, flex: 1 }} placeholder="/path/to/folder" />
-            <button onClick={openPicker} style={{ ...secondaryBtn, whiteSpace: "nowrap" }}>Browse…</button>
+        <Field label="Watched Directories">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(config.baseDirs ?? [config.baseDir]).map((dir, i) => (
+              <div key={dir} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input value={dir} onChange={(e) => {
+                  const dirs = [...(config.baseDirs ?? [config.baseDir])];
+                  dirs[i] = e.target.value;
+                  setConfig({ ...config, baseDirs: dirs, baseDir: dirs[0] });
+                }} style={{ ...inputStyle, flex: 1, fontFamily: "monospace", fontSize: 13 }} />
+                <button onClick={() => {
+                  const dirs = (config.baseDirs ?? [config.baseDir]).filter((_, j) => j !== i);
+                  setConfig({ ...config, baseDirs: dirs.length ? dirs : [config.baseDir], baseDir: dirs[0] ?? config.baseDir });
+                }} disabled={(config.baseDirs ?? []).length <= 1} title="Remove"
+                  style={{ ...secondaryBtn, padding: "8px 12px", opacity: (config.baseDirs ?? [config.baseDir]).length <= 1 ? 0.3 : 1 }}>✕</button>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => openPicker(true)} style={{ ...secondaryBtn, fontSize: 13 }}>+ Add Folder</button>
+              <button onClick={() => openPicker(false)} style={{ ...secondaryBtn, fontSize: 13, color: "var(--text-muted)" }}>Browse…</button>
+            </div>
           </div>
         </Field>
         <Field label="Theme">
@@ -277,7 +317,7 @@ export default function SettingsPage() {
         {(config.digest?.frequency ?? "daily") === "daily" && (
           <Field label="Send at (hour, 0–23)">
             <input type="number" min={0} max={23} value={config.digest?.hour ?? 8}
-              onChange={(e) => setConfig({ ...config, digest: { ...(config.digest ?? { enabled: false, frequency: "daily" }), hour: +e.target.value } })}
+              onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) setConfig({ ...config, digest: { ...(config.digest ?? { enabled: false, frequency: "daily" }), hour: Math.min(23, Math.max(0, v)) } }); }}
               style={{ ...inputStyle, width: 90 }} />
           </Field>
         )}

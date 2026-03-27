@@ -34,3 +34,17 @@ export function scanRepos(baseDir: string): Repo[] {
 
   return repos;
 }
+
+export function scanMultipleDirs(baseDirs: string[]): Repo[] {
+  const seen = new Set<string>();
+  const repos: Repo[] = [];
+  for (const dir of baseDirs) {
+    for (const repo of scanRepos(dir)) {
+      if (!seen.has(repo.path)) {
+        seen.add(repo.path);
+        repos.push(repo);
+      }
+    }
+  }
+  return repos;
+}
