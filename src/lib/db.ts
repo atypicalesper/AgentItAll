@@ -32,7 +32,7 @@ const DB_PATH = join(DATA_DIR, "agentitall.db");
 let _db: Database.Database | null = null;
 
 const insertLog = (() => {
-  let stmt: ReturnType<Database.Database["prepare"]> | null = null;
+  let stmt: Database.Statement | null = null;
   return (db: Database.Database, e: LogEntry) => {
     if (!stmt) stmt = db.prepare("INSERT INTO logs(ts,level,ns,msg) VALUES(?,?,?,?)");
     stmt.run(e.ts, e.level, e.ns, e.msg);
