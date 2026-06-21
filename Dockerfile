@@ -1,5 +1,8 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
+# better-sqlite3 is a native module — alpine has no prebuilt musl binary, so it
+# compiles from source and needs python3/make/g++.
+RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 RUN npm ci
 
